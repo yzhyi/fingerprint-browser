@@ -1,0 +1,379 @@
+From 205b029e8a36128bbb4abae84a57eb711c008cd9 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Tue, 21 Oct 2025 00:20:23 +0800
+Subject: [PATCH 32/68] modify canvas webgpu code structure
+
+---
+ a_tools/BUILD.gn                              | 10 +++----
+ a_tools/fingerprint/canvas/canvas.cc          |  5 ++--
+ a_tools/fingerprint/canvas/canvas.h           |  3 +-
+ a_tools/fingerprint/webgl/webgl.cc            | 16 +++++------
+ a_tools/fingerprint/webgl/webgl.h             |  4 +--
+ a_tools/fingerprint/webgpu/webgpu.cc          | 28 +++++++++++--------
+ a_tools/fingerprint/webgpu/webgpu.h           | 12 ++++----
+ a_tools/fingerprint/webrtc/webrtc.cc          | 21 +++++++-------
+ config.json                                   | 12 ++++----
+ .../core/html/canvas/html_canvas_element.cc   |  2 +-
+ .../webgl/webgl_rendering_context_base.cc     |  2 +-
+ .../modules/webgpu/gpu_adapter_info.cc        |  8 +++---
+ .../modules/webgpu/gpu_supported_limits.cc    |  2 +-
+ 13 files changed, 64 insertions(+), 61 deletions(-)
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index 90c7f546735ad..f8c605674742b 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -33,14 +33,12 @@ static_library("a_tools") {
+   ]
+ 
+   public_deps = [
+-    "//base",
++  #   "//base",
+   ]
+   deps = [
+-    "//third_party/webrtc_overrides:webrtc_component",
+-  #"//advanced_example:default",
+-  #"//advanced_example/interfaces:all_interfaces",
+-  #"//advanced_example/product:product_impl",
+-  #"//advanced_example/customer:customer_impl",
++    "//base/allocator/partition_allocator:raw_ptr",
++    "//third_party/abseil-cpp:absl",
++  #   "//third_party/webrtc_overrides:webrtc_component",
+   ]
+ 
+   # 编译配置（继承 Chromium 通用编译规则，如警告等级、C++ 标准等）
+diff --git a/a_tools/fingerprint/canvas/canvas.cc b/a_tools/fingerprint/canvas/canvas.cc
+index 34e3ba9f91725..a3486041b78aa 100644
+--- a/a_tools/fingerprint/canvas/canvas.cc
++++ b/a_tools/fingerprint/canvas/canvas.cc
+@@ -64,10 +64,11 @@ void Canvas::ModifyRectHeight(double &value) {
+   }
+ }
+ 
+-void Canvas::ModifyDataURL(String &data_url) {
++std::string Canvas::ModifyDataURL(std::string data_url) {
+   if (m_enabled && m_modify_data_url_enable) {
+-    data_url = data_url + String(" ");
++    data_url = data_url + " ";
+   }
++  return data_url;
+ }
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/canvas/canvas.h b/a_tools/fingerprint/canvas/canvas.h
+index ab824bfe56114..8dab3e5cd1781 100644
+--- a/a_tools/fingerprint/canvas/canvas.h
++++ b/a_tools/fingerprint/canvas/canvas.h
+@@ -3,7 +3,6 @@
+ #include "a_tools/fingerprint/base_fingerprint.h"
+ #include "base/values.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+-#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+ 
+ namespace fingerprint {
+ 
+@@ -27,7 +26,7 @@ public:
+   void ModifyRectY(double &value);
+   void ModifyRectWidth(double &value);
+   void ModifyRectHeight(double &value);
+-  void ModifyDataURL(String &data_url);
++  std::string ModifyDataURL(std::string data_url);
+ 
+ private:
+   double m_width{0};
+diff --git a/a_tools/fingerprint/webgl/webgl.cc b/a_tools/fingerprint/webgl/webgl.cc
+index c2133ef0649c3..96b380aebdc07 100644
+--- a/a_tools/fingerprint/webgl/webgl.cc
++++ b/a_tools/fingerprint/webgl/webgl.cc
+@@ -48,14 +48,14 @@ std::string WebGL::GetUnmaskedRendererWebgl() {
+   return "";
+ }
+ 
+-void WebGL::RandomShuffleExtensions(Vector<String> &extensions) {
+-  if (m_enabled && m_extensions_random_shuffle_enable) {
+-    const int fixed_seed = 123;
+-    static std::mt19937 gen(fixed_seed);
+-    // static std::mt19937 gen(std::random_device{}());
+-    std::shuffle(extensions.begin(), extensions.end(), gen);
+-  }
+-}
++// void WebGL::RandomShuffleExtensions(Vector<String> &extensions) {
++//   if (m_enabled && m_extensions_random_shuffle_enable) {
++//     const int fixed_seed = 123;
++//     static std::mt19937 gen(fixed_seed);
++//     // static std::mt19937 gen(std::random_device{}());
++//     std::shuffle(extensions.begin(), extensions.end(), gen);
++//   }
++// }
+ 
+ void WebGL::ModifyPixelsX(int &value) {
+   if (m_enabled) {
+diff --git a/a_tools/fingerprint/webgl/webgl.h b/a_tools/fingerprint/webgl/webgl.h
+index e5cb7c5f6063d..d54e8f2ed8c42 100644
+--- a/a_tools/fingerprint/webgl/webgl.h
++++ b/a_tools/fingerprint/webgl/webgl.h
+@@ -3,7 +3,6 @@
+ #include "a_tools/fingerprint/base_fingerprint.h"
+ #include "base/values.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+-#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+ 
+ namespace fingerprint {
+ 
+@@ -23,7 +22,8 @@ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+   std::string GetUnmaskedVendorWebgl();
+   std::string GetUnmaskedRendererWebgl();
+-  void RandomShuffleExtensions(Vector<String> &extensions);
++  // TODO: Yzhyi
++  // void RandomShuffleExtensions(Vector<String> &extensions);
+   void ModifyPixelsX(int &value);
+   void ModifyPixelsY(int &value);
+   void ModifyPixelsWidth(int &value);
+diff --git a/a_tools/fingerprint/webgpu/webgpu.cc b/a_tools/fingerprint/webgpu/webgpu.cc
+index 520240a935f3f..271476a69597d 100644
+--- a/a_tools/fingerprint/webgpu/webgpu.cc
++++ b/a_tools/fingerprint/webgpu/webgpu.cc
+@@ -45,28 +45,32 @@ bool WebGPU::ParseJson(const absl::optional<base::Value> &json_value) {
+   return false;
+ }
+ 
+-void WebGPU::ModifyVendor(String &vendor) {
++std::string WebGPU::ModifyVendor(std::string vendor) {
+   if (m_enabled && !m_vendor.empty()) {
+-    vendor = String(m_vendor);
++    vendor = m_vendor;
+   }
++  return vendor;
+ }
+ 
+-void WebGPU::ModifyArchitecture(String &architecture) {
++std::string WebGPU::ModifyArchitecture(std::string architecture) {
+   if (m_enabled && !m_architecture.empty()) {
+-    architecture = String(m_architecture);
++    architecture = m_architecture;
+   }
++  return architecture;
+ }
+ 
+-void WebGPU::ModifyDevice(String &device) {
++std::string WebGPU::ModifyDevice(std::string device) {
+   if (m_enabled && !m_device.empty()) {
+-    device = String(m_device);
++    device = m_device;
+   }
++  return device;
+ }
+ 
+-void WebGPU::ModifyDescription(String &description) {
++std::string WebGPU::ModifyDescription(std::string description) {
+   if (m_enabled && !m_description.empty()) {
+-    description = String(m_description);
++    description = m_description;
+   }
++  return description;
+ }
+ 
+ void WebGPU::ModifyIsFallbackAdapter(bool &is_fallback_adapter) {
+@@ -75,18 +79,18 @@ void WebGPU::ModifyIsFallbackAdapter(bool &is_fallback_adapter) {
+   }
+ }
+ 
+-void WebGPU::ModifyLimits(String name, uint32_t &value) {
++void WebGPU::ModifyLimits(std::string name, uint32_t &value) {
+   if (m_enabled) {
+-    std::string key = name.Ascii();
++    std::string key = name;
+     if (m_limits.contains(key)) {
+       value = m_limits[key];
+     }
+   }
+ }
+ 
+-void WebGPU::ModifyLimits(String name, uint64_t &value) {
++void WebGPU::ModifyLimits(std::string name, uint64_t &value) {
+   if (m_enabled) {
+-    std::string key = name.Ascii();
++    std::string key = name;
+     if (m_limits.contains(key)) {
+       value = m_limits[key];
+     }
+diff --git a/a_tools/fingerprint/webgpu/webgpu.h b/a_tools/fingerprint/webgpu/webgpu.h
+index 600016de77898..0e9392c538748 100644
+--- a/a_tools/fingerprint/webgpu/webgpu.h
++++ b/a_tools/fingerprint/webgpu/webgpu.h
+@@ -21,13 +21,13 @@ private:
+ 
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+-  void ModifyVendor(String &vendor);
+-  void ModifyArchitecture(String &architecture);
+-  void ModifyDevice(String &device);
+-  void ModifyDescription(String &description);
++  std::string ModifyVendor(std::string vendor);
++  std::string ModifyArchitecture(std::string architecture);
++  std::string ModifyDevice(std::string device);
++  std::string ModifyDescription(std::string description);
+   void ModifyIsFallbackAdapter(bool &is_fallback_adapter);
+-  void ModifyLimits(String name, uint32_t &value);
+-  void ModifyLimits(String name, uint64_t &value);
++  void ModifyLimits(std::string name, uint32_t &value);
++  void ModifyLimits(std::string name, uint64_t &value);
+   std::unordered_map<std::string, bool> GetFeatures();
+ 
+ private:
+diff --git a/a_tools/fingerprint/webrtc/webrtc.cc b/a_tools/fingerprint/webrtc/webrtc.cc
+index 31088581382e0..4cb94c7c0ff2b 100644
+--- a/a_tools/fingerprint/webrtc/webrtc.cc
++++ b/a_tools/fingerprint/webrtc/webrtc.cc
+@@ -1,6 +1,6 @@
+ #include "webrtc.h"
+ #include "a_tools/fingerprint/utils/parse_json.h"
+-#include "third_party/webrtc/api/candidate.h"
++// #include "third_party/webrtc/api/candidate.h"
+ 
+ namespace fingerprint {
+ 
+@@ -34,17 +34,18 @@ bool WebRTC::ParseJson(const absl::optional<base::Value> &json_value) {
+   return false;
+ }
+ 
++// TODO: Yzhyi
+ void WebRTC::ModifyAddress(webrtc::IceCandidateType type, webrtc::SocketAddress &address) {
+   if (m_enabled) {
+-    if (type == webrtc::IceCandidateType::kHost) {
+-      address = webrtc::SocketAddress(m_host_ip, static_cast<int>(m_host_port));
+-    }
+-    else if (type == webrtc::IceCandidateType::kSrflx) {
+-      address = webrtc::SocketAddress(m_srflx_ip, static_cast<int>(m_srflx_port));
+-    }
+-    else if (type == webrtc::IceCandidateType::kRelay) {
+-      address = webrtc::SocketAddress(m_relay_ip, static_cast<int>(m_relay_port));
+-    }
++    // if (type == webrtc::IceCandidateType::kHost) {
++    //   address = webrtc::SocketAddress(m_host_ip, static_cast<int>(m_host_port));
++    // }
++    // else if (type == webrtc::IceCandidateType::kSrflx) {
++    //   address = webrtc::SocketAddress(m_srflx_ip, static_cast<int>(m_srflx_port));
++    // }
++    // else if (type == webrtc::IceCandidateType::kRelay) {
++    //   address = webrtc::SocketAddress(m_relay_ip, static_cast<int>(m_relay_port));
++    // }
+   }
+ }
+ 
+diff --git a/config.json b/config.json
+index ac0cb9f41cba1..33e3f2bd1fa91 100644
+--- a/config.json
++++ b/config.json
+@@ -37,7 +37,7 @@
+     }
+   },
+   "webgpu": {
+-    "enabled": false,
++    "enabled": true,
+     "params": {
+       "info": {
+         "vendor": "1",
+@@ -58,7 +58,7 @@
+     }
+   },
+   "webrtc": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "host": {
+         "ip": "192.168.0.127",
+@@ -75,7 +75,7 @@
+     }
+   },
+   "tls": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "cipher_suites": {
+         "add": [],
+@@ -86,19 +86,19 @@
+     }
+   },
+   "device_memory": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "MiB": 1
+     }
+   },
+   "hardware_concurrency": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "cores": 8
+     }
+   },
+   "battery": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "charging": true,
+       "level": 0.8
+diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+index 7483ff388fd5d..c7d7b0df9cb29 100644
+--- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
++++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+@@ -1437,7 +1437,7 @@ String HTMLCanvasElement::ToDataURLInternal(const String& mime_type,
+           "CanvasReadback", "data_url", data_url.Utf8(), "noised", noised);
+     }
+     // Yzhyi start
+-    fingerprint::Controller::GetInstance().GetCanvas().ModifyDataURL(data_url);
++    data_url = String(fingerprint::Controller::GetInstance().GetCanvas().ModifyDataURL(data_url.Ascii()));
+     // Yzhyi end
+     return data_url;
+   }
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index d34effa48d93f..dc729140a656c 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -4418,7 +4418,7 @@ WebGLRenderingContextBase::getSupportedExtensions() {
+   }
+ 
+   // Yzhyi start
+-  fingerprint::Controller::GetInstance().GetWebGL().RandomShuffleExtensions(result);
++  // fingerprint::Controller::GetInstance().GetWebGL().RandomShuffleExtensions(result);
+   // TODO: Yzhyi can customize
+   // Yzhyi end
+ 
+diff --git a/third_party/blink/renderer/modules/webgpu/gpu_adapter_info.cc b/third_party/blink/renderer/modules/webgpu/gpu_adapter_info.cc
+index 0b7d85f30aee9..23f6151aa5295 100644
+--- a/third_party/blink/renderer/modules/webgpu/gpu_adapter_info.cc
++++ b/third_party/blink/renderer/modules/webgpu/gpu_adapter_info.cc
+@@ -41,10 +41,10 @@ GPUAdapterInfo::GPUAdapterInfo(const String& vendor,
+       power_preference_(power_preference) {
+   // Yzhyi start
+   if (fingerprint::Controller::GetInstance().GetWebGPU().Enabled()) {
+-      fingerprint::Controller::GetInstance().GetWebGPU().ModifyVendor(vendor_);
+-      fingerprint::Controller::GetInstance().GetWebGPU().ModifyArchitecture(architecture_);
+-      fingerprint::Controller::GetInstance().GetWebGPU().ModifyDevice(device_);
+-      fingerprint::Controller::GetInstance().GetWebGPU().ModifyDescription(description_);
++      vendor_ = String(fingerprint::Controller::GetInstance().GetWebGPU().ModifyVendor(vendor_.Ascii()));
++      architecture_ = String(fingerprint::Controller::GetInstance().GetWebGPU().ModifyArchitecture(architecture_.Ascii()));
++      device_ = String(fingerprint::Controller::GetInstance().GetWebGPU().ModifyDevice(device_.Ascii()));
++      description_ = String(fingerprint::Controller::GetInstance().GetWebGPU().ModifyDescription(description_.Ascii()));
+       fingerprint::Controller::GetInstance().GetWebGPU().ModifyIsFallbackAdapter(is_fallback_adapter_);
+   }
+   // Yzhyi end
+diff --git a/third_party/blink/renderer/modules/webgpu/gpu_supported_limits.cc b/third_party/blink/renderer/modules/webgpu/gpu_supported_limits.cc
+index 9e0167b2b3124..3852056285585 100644
+--- a/third_party/blink/renderer/modules/webgpu/gpu_supported_limits.cc
++++ b/third_party/blink/renderer/modules/webgpu/gpu_supported_limits.cc
+@@ -132,7 +132,7 @@ bool GPUSupportedLimits::Populate(
+ #define X(name)                                                              \
+   decltype(GPUSupportedLimits::ComboLimits::name) GPUSupportedLimits::name() \
+       const {                                                                \
+-    fingerprint::Controller::GetInstance().GetWebGPU().ModifyLimits(String(#name), \
++    fingerprint::Controller::GetInstance().GetWebGPU().ModifyLimits(std::string(#name), \
+     const_cast<std::remove_const_t<decltype(limits_.name)>&>(limits_.name)); \
+     return limits_.name;                                                     \
+   }
+-- 
+2.43.0
+

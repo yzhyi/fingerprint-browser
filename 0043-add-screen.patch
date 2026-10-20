@@ -1,0 +1,391 @@
+From ceffd3e341f6627a5d6b7f20ece3fddacabcacd4 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Mon, 27 Oct 2025 22:59:36 +0800
+Subject: [PATCH 43/68] add screen
+
+---
+ a_tools/BUILD.gn                              |  2 +
+ a_tools/fingerprint/controller.cc             |  3 +-
+ a_tools/fingerprint/controller.h              |  3 +
+ a_tools/fingerprint/screen/screen.cc          | 68 +++++++++++++++++++
+ a_tools/fingerprint/screen/screen.h           | 44 ++++++++++++
+ config.json                                   | 15 +++-
+ .../renderer/core/css/media_values_dynamic.cc | 18 +++++
+ .../blink/renderer/core/frame/screen.cc       | 54 +++++++++++++++
+ 8 files changed, 205 insertions(+), 2 deletions(-)
+ create mode 100644 a_tools/fingerprint/screen/screen.cc
+ create mode 100644 a_tools/fingerprint/screen/screen.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index 343068dd71734..6e1a0dbcc3f75 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -41,6 +41,8 @@ source_set("a_tools") {
+     "fingerprint/battery/battery.cc",
+     "fingerprint/network_information/network_information.h",
+     "fingerprint/network_information/network_information.cc",
++    "fingerprint/screen/screen.h",
++    "fingerprint/screen/screen.cc",
+   ]
+   deps = [
+     "//base/allocator/partition_allocator:raw_ptr",
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index 139e4a299e509..e4c0bc4d88982 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -20,7 +20,8 @@ Controller::Controller()
+     m_device_memory(m_json_value),
+     m_hardware_concurrency(m_json_value),
+     m_battery(m_json_value),
+-    m_network_information(m_json_value)
++    m_network_information(m_json_value),
++    m_screen(m_json_value)
+ {}
+ 
+ Controller::~Controller() = default;
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index c1e9e497b39fd..6f4ca98cf67b9 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -18,6 +18,7 @@
+ #include "./hardware_concurrency/hardware_concurrency.h"
+ #include "./battery/battery.h"
+ #include "./network_information/network_information.h"
++#include "./screen/screen.h"
+ 
+ namespace fingerprint {
+ 
+@@ -41,6 +42,7 @@ public:
+   HardwareConcurrency& GetHardwareConcurrency() { return m_hardware_concurrency; }
+   Battery& GetBattery() { return m_battery; }
+   NetworkInformation& GetNetworkInformation() { return m_network_information; }
++  Screen& GetScreen() { return m_screen; }
+ 
+ private:
+   Controller();
+@@ -61,6 +63,7 @@ private:
+   HardwareConcurrency m_hardware_concurrency;
+   Battery m_battery;
+   NetworkInformation m_network_information;
++  Screen m_screen;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/screen/screen.cc b/a_tools/fingerprint/screen/screen.cc
+new file mode 100644
+index 0000000000000..af688b252dbbf
+--- /dev/null
++++ b/a_tools/fingerprint/screen/screen.cc
+@@ -0,0 +1,68 @@
++#include "./screen.h"
++#include "../utils/random.h"
++#include "../utils/parse_json.h"
++#include <cstdint>
++#include <cstdio>
++#include <iostream>
++
++namespace fingerprint {
++
++Screen::Screen(const absl::optional<base::Value> &json_value) {
++  ParseJson(json_value);
++}
++
++Screen::~Screen() = default;
++
++bool Screen::ParseJson(const absl::optional<base::Value> &json_value) {
++  if (!json_value) return false;
++  if (const base::DictValue* dict = FindDict(json_value.value(), "screen"); dict) {
++    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
++      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        FindDouble(params_dict, "width", m_width);
++        FindDouble(params_dict, "height", m_height);
++        FindDouble(params_dict, "avail_width", m_avail_width);
++        FindDouble(params_dict, "avail_height", m_avail_height);
++        FindDouble(params_dict, "avail_left", m_avail_left);
++        FindDouble(params_dict, "avail_top", m_avail_top);
++        FindDouble(params_dict, "color_depth", m_color_depth);
++        FindDouble(params_dict, "pixel_depth", m_pixel_depth);
++      }
++    }
++    return true;
++  }
++  return false;
++}
++
++int Screen::GetWidth() {
++  return static_cast<int>(m_width);
++}
++
++int Screen::GetHeight() {
++  return static_cast<int>(m_height);
++}
++
++int Screen::GetAvailWidth() {
++  return static_cast<int>(m_avail_width);
++}
++
++int Screen::GetAvailHeight() {
++  return static_cast<int>(m_avail_height);
++}
++
++int Screen::GetAvailLeft() {
++  return static_cast<int>(m_avail_left);
++}
++
++int Screen::GetAvailTop() {
++  return static_cast<int>(m_avail_top);
++}
++
++unsigned Screen::GetColorDepth() {
++  return static_cast<unsigned>(m_color_depth);
++}
++
++unsigned Screen::GetPixelDepth() {
++  return static_cast<unsigned>(m_pixel_depth);
++}
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/screen/screen.h b/a_tools/fingerprint/screen/screen.h
+new file mode 100644
+index 0000000000000..9bc6b40fdc258
+--- /dev/null
++++ b/a_tools/fingerprint/screen/screen.h
+@@ -0,0 +1,44 @@
++# pragma once
++
++#include "../base_fingerprint.h"
++#include "base/values.h"
++#include "base/base_export.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++
++namespace fingerprint {
++
++class Controller;
++
++class Screen : public BaseFingerprint {
++public:
++  friend Controller;
++  Screen(const Screen&) = delete;
++  Screen& operator=(const Screen&) = delete;
++
++private:
++  explicit Screen(const absl::optional<base::Value> &json_value);
++  ~Screen() override;
++
++public:
++  bool ParseJson(const absl::optional<base::Value> &json_value) override;
++  BASE_EXPORT int GetWidth();
++  BASE_EXPORT int GetHeight();
++  BASE_EXPORT int GetAvailWidth();
++  BASE_EXPORT int GetAvailHeight();
++  BASE_EXPORT int GetAvailLeft();
++  BASE_EXPORT int GetAvailTop();
++  BASE_EXPORT unsigned GetColorDepth();
++  BASE_EXPORT unsigned GetPixelDepth();
++
++private:
++  double m_width{0};
++  double m_height{0};
++  double m_avail_width{0};
++  double m_avail_height{0};
++  double m_avail_left{0};
++  double m_avail_top{0};
++  double m_color_depth{0};
++  double m_pixel_depth{0};
++};
++
++} // namespace fingerprint
+diff --git a/config.json b/config.json
+index 72248e3435168..fcf298514a7b3 100644
+--- a/config.json
++++ b/config.json
+@@ -113,12 +113,25 @@
+     }
+   },
+   "network_information": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "rtt": 10,
+       "save_data" : true,
+       "downlink_mbps" : 1,
+       "effective_type": "1g"
+     }
++  },
++  "screen": {
++    "enabled": true,
++    "params": {
++      "width": 2560,
++      "height": 1660,
++      "avail_width": 2540,
++      "avail_height": 1640,
++      "avail_left": 0,
++      "avail_top": 0,
++      "color_depth": 32,
++      "pixel_depth": 32
++    }
+   }
+ }
+diff --git a/third_party/blink/renderer/core/css/media_values_dynamic.cc b/third_party/blink/renderer/core/css/media_values_dynamic.cc
+index b0caa1bb2ae11..09302716d1da0 100644
+--- a/third_party/blink/renderer/core/css/media_values_dynamic.cc
++++ b/third_party/blink/renderer/core/css/media_values_dynamic.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #include "third_party/blink/renderer/core/css/media_values_dynamic.h"
+ 
+ #include "third_party/blink/public/common/css/forced_colors.h"
+@@ -169,10 +173,24 @@ double MediaValuesDynamic::ContainerHeight(const ScopedCSSName&) const {
+ }
+ 
+ int MediaValuesDynamic::DeviceWidth() const {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (fingerprint::Controller::GetInstance().GetScreen().Enabled()) {
++    return fingerprint::Controller::GetInstance().GetScreen().GetWidth();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return CalculateDeviceWidth(frame_);
+ }
+ 
+ int MediaValuesDynamic::DeviceHeight() const {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (fingerprint::Controller::GetInstance().GetScreen().Enabled()) {
++    return fingerprint::Controller::GetInstance().GetScreen().GetHeight();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return CalculateDeviceHeight(frame_);
+ }
+ 
+diff --git a/third_party/blink/renderer/core/frame/screen.cc b/third_party/blink/renderer/core/frame/screen.cc
+index 4325717e2cc33..f8d7229f649c0 100644
+--- a/third_party/blink/renderer/core/frame/screen.cc
++++ b/third_party/blink/renderer/core/frame/screen.cc
+@@ -26,6 +26,10 @@
+  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #include "third_party/blink/renderer/core/frame/screen.h"
+ 
+ #include "base/numerics/safe_conversions.h"
+@@ -118,6 +122,12 @@ int Screen::height() const {
+     return DomWindow()->innerHeight();
+   }
+ 
++  #ifdef ENABLE_FINGERPRINT
++  if (fingerprint::Controller::GetInstance().GetScreen().Enabled()) {
++    return fingerprint::Controller::GetInstance().GetScreen().GetHeight();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return GetRect(/*available=*/false).height();
+ }
+ 
+@@ -129,6 +139,12 @@ int Screen::width() const {
+     return DomWindow()->innerWidth();
+   }
+ 
++  #ifdef ENABLE_FINGERPRINT
++  if (fingerprint::Controller::GetInstance().GetScreen().Enabled()) {
++    return fingerprint::Controller::GetInstance().GetScreen().GetWidth();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return GetRect(/*available=*/false).width();
+ }
+ 
+@@ -142,12 +158,26 @@ unsigned Screen::colorDepth() const {
+   if (!DomWindow() || ShouldReduceScreenSize()) {
+     return unknown_color_depth;
+   }
++
++  #ifdef ENABLE_FINGERPRINT
++  if (fingerprint::Controller::GetInstance().GetScreen().Enabled()) {
++    return fingerprint::Controller::GetInstance().GetScreen().GetColorDepth();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return GetScreenInfo().depth == 0
+              ? unknown_color_depth
+              : base::saturated_cast<unsigned>(GetScreenInfo().depth);
+ }
+ 
+ unsigned Screen::pixelDepth() const {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (fingerprint::Controller::GetInstance().GetScreen().Enabled()) {
++    return fingerprint::Controller::GetInstance().GetScreen().GetPixelDepth();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return colorDepth();
+ }
+ 
+@@ -159,6 +189,12 @@ int Screen::availLeft() const {
+     return 0;
+   }
+ 
++  #ifdef ENABLE_FINGERPRINT
++  if (fingerprint::Controller::GetInstance().GetScreen().Enabled()) {
++    return fingerprint::Controller::GetInstance().GetScreen().GetAvailLeft();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return GetRect(/*available=*/true).x();
+ }
+ 
+@@ -170,6 +206,12 @@ int Screen::availTop() const {
+     return 0;
+   }
+ 
++  #ifdef ENABLE_FINGERPRINT
++  if (fingerprint::Controller::GetInstance().GetScreen().Enabled()) {
++    return fingerprint::Controller::GetInstance().GetScreen().GetAvailTop();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return GetRect(/*available=*/true).y();
+ }
+ 
+@@ -181,6 +223,12 @@ int Screen::availHeight() const {
+     return DomWindow()->innerHeight();
+   }
+ 
++  #ifdef ENABLE_FINGERPRINT
++  if (fingerprint::Controller::GetInstance().GetScreen().Enabled()) {
++    return fingerprint::Controller::GetInstance().GetScreen().GetAvailHeight();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return GetRect(/*available=*/true).height();
+ }
+ 
+@@ -192,6 +240,12 @@ int Screen::availWidth() const {
+     return DomWindow()->innerWidth();
+   }
+ 
++  #ifdef ENABLE_FINGERPRINT
++  if (fingerprint::Controller::GetInstance().GetScreen().Enabled()) {
++    return fingerprint::Controller::GetInstance().GetScreen().GetAvailWidth();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return GetRect(/*available=*/true).width();
+ }
+ 
+-- 
+2.43.0
+

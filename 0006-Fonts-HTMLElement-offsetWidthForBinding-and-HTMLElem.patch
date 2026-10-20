@@ -1,0 +1,140 @@
+From 1c2d595f08f69c0701bef0192a2408a7ba809548 Mon Sep 17 00:00:00 2001
+From: yuzhengyi02 <yuzhengyi02@meituan.com>
+Date: Fri, 5 Sep 2025 15:33:36 +0800
+Subject: [PATCH 06/68] Fonts: HTMLElement::offsetWidthForBinding and
+ HTMLElement::offsetHeightForBinding
+
+---
+ .../renderer_host/render_process_host_impl.cc | 16 +++++++
+ .../blink/renderer/core/css/css_font_face.cc  |  1 +
+ .../blink/renderer/core/html/html_element.cc  | 47 +++++++++++++++++++
+ 3 files changed, 64 insertions(+)
+
+diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
+index 82ef5d6cac070..b50ed7faf97a9 100644
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -5,6 +5,14 @@
+ // Represents the browser side of the browser <--> renderer communication
+ // channel. There will be one RenderProcessHost per renderer process.
+ 
++// Yzhyi start
++#include "base/command_line.h"
++#include "third_party/blink/public/common/switches.h"
++#include "base/json/json_reader.h"
++#include "base/values.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++// Yzhyi end
++
+ #include "content/browser/renderer_host/render_process_host_impl.h"
+ 
+ #include <algorithm>
+@@ -3366,6 +3374,14 @@ void RenderProcessHostImpl::AppendRendererCommandLine(
+     std::string yzhyi_command_str = yzhyi_command_line->
+       GetSwitchValueASCII(switches::kYzhyi);
+     command_line->AppendSwitchASCII(switches::kYzhyi, yzhyi_command_str);
++      // test start
++      // absl::optional<base::Value> yzhyi_command_value =
++      //   base::JSONReader::Read(yzhyi_command_str);
++      // std::optional<bool> data = yzhyi_command_value->GetDict().FindBool("fonts");
++      // if (data.has_value() == true) {
++      //   std::cout << "hello" << std::endl;
++      // }
++      // test end
+   }
+   // Yzhyi end
+ 
+diff --git a/third_party/blink/renderer/core/css/css_font_face.cc b/third_party/blink/renderer/core/css/css_font_face.cc
+index 82375f708b71a..46bf412b4a8a7 100644
+--- a/third_party/blink/renderer/core/css/css_font_face.cc
++++ b/third_party/blink/renderer/core/css/css_font_face.cc
+@@ -249,6 +249,7 @@ void CSSFontFace::Load(const FontDescription& font_description) {
+       if (source->IsLocalNonBlocking()) {
+         if (source->IsLocalFontAvailable(font_description)) {
+           SetLoadStatus(FontFace::kLoaded);
++          // SetLoadStatus(FontFace::kError); // NOTE: set this can pass creepjs
+           return;
+         }
+       } else {
+diff --git a/third_party/blink/renderer/core/html/html_element.cc b/third_party/blink/renderer/core/html/html_element.cc
+index a763c60b6d505..4ff9fbaedd0a2 100644
+--- a/third_party/blink/renderer/core/html/html_element.cc
++++ b/third_party/blink/renderer/core/html/html_element.cc
+@@ -22,6 +22,14 @@
+  * Boston, MA 02110-1301, USA.
+  *
+  */
++// Yzhyi start
++#include <random>
++#include "base/command_line.h"
++#include "third_party/blink/public/common/switches.h"
++#include "base/json/json_reader.h"
++#include "base/values.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++// Yzhyi end
+ 
+ #include "third_party/blink/renderer/core/html/html_element.h"
+ 
+@@ -3009,6 +3017,19 @@ int HTMLElement::offsetTopForBinding() {
+   return OffsetTopOrLeft(/*top=*/true);
+ }
+ 
++// Yzhyi start
++int getRandomIntForFoo2Modern() {
++  static std::mt19937 generator(static_cast<unsigned long>(time(NULL))); // 静态以确保只初始化一次
++  std::uniform_int_distribution<int> distribution(0, 9);
++  int tmp = distribution(generator);
++  if (tmp > 0){
++    return 0;
++  }else{
++    return 1;
++  }
++}
++// Yzhyi end
++
+ int HTMLElement::offsetWidthForBinding() {
+   GetDocument().EnsurePaintLocationDataValidForNode(
+       this, DocumentUpdateReason::kJavaScript);
+@@ -3016,6 +3037,19 @@ int HTMLElement::offsetWidthForBinding() {
+   if (const auto* layout_object = GetLayoutBoxModelObject()) {
+     result = AdjustedOffsetForZoom(layout_object->OffsetWidth());
+   }
++  // Yzhyi start
++  const ::base::CommandLine* yzhyi_command_line = ::base::CommandLine::ForCurrentProcess();
++  if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
++    std::string yzhyi_command_str = yzhyi_command_line->
++      GetSwitchValueASCII(switches::kYzhyi);
++    absl::optional<base::Value> yzhyi_command_value =
++      base::JSONReader::Read(yzhyi_command_str);
++    std::optional<bool> data = yzhyi_command_value->GetDict().FindBool("fonts");
++    if (data.has_value() == true) {
++      result = result + getRandomIntForFoo2Modern();
++    }
++  }
++  // Yzhyi end
+   return result;
+ }
+ 
+@@ -3027,6 +3061,19 @@ int HTMLElement::offsetHeightForBinding() {
+   if (const auto* layout_object = GetLayoutBoxModelObject()) {
+     result = AdjustedOffsetForZoom(layout_object->OffsetHeight());
+   }
++  // Yzhyi start
++  const ::base::CommandLine* yzhyi_command_line = ::base::CommandLine::ForCurrentProcess();
++  if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
++    std::string yzhyi_command_str = yzhyi_command_line->
++      GetSwitchValueASCII(switches::kYzhyi);
++    absl::optional<base::Value> yzhyi_command_value =
++      base::JSONReader::Read(yzhyi_command_str);
++    std::optional<bool> data = yzhyi_command_value->GetDict().FindBool("fonts");
++    if (data.has_value() == true) {
++      result = result + getRandomIntForFoo2Modern();
++    }
++  }
++  // Yzhyi end
+   return result;
+ }
+ 
+-- 
+2.43.0
+

@@ -1,0 +1,308 @@
+From da877162d81ad73d38ac88dd5c30e436b1c11953 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Mon, 27 Oct 2025 14:52:34 +0800
+Subject: [PATCH 42/68] add network_information
+
+---
+ a_tools/BUILD.gn                              |  3 +
+ a_tools/fingerprint/controller.cc             |  3 +-
+ a_tools/fingerprint/controller.h              |  3 +
+ .../network_information.cc                    | 70 +++++++++++++++++++
+ .../network_information/network_information.h | 37 ++++++++++
+ config.json                                   | 11 ++-
+ .../modules/netinfo/network_information.cc    | 39 +++++++++++
+ 7 files changed, 164 insertions(+), 2 deletions(-)
+ create mode 100644 a_tools/fingerprint/network_information/network_information.cc
+ create mode 100644 a_tools/fingerprint/network_information/network_information.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index 352b1fa327983..343068dd71734 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -1,3 +1,4 @@
++# TODO: 使用宏简化类头文件生成
+ config("a_tools_config") {
+   defines = [
+     "ENABLE_FINGERPRINT"
+@@ -38,6 +39,8 @@ source_set("a_tools") {
+     "fingerprint/hardware_concurrency/hardware_concurrency.cc",
+     "fingerprint/battery/battery.h",
+     "fingerprint/battery/battery.cc",
++    "fingerprint/network_information/network_information.h",
++    "fingerprint/network_information/network_information.cc",
+   ]
+   deps = [
+     "//base/allocator/partition_allocator:raw_ptr",
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index 6d554bbd7abe6..139e4a299e509 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -19,7 +19,8 @@ Controller::Controller()
+     m_tls(m_json_value),
+     m_device_memory(m_json_value),
+     m_hardware_concurrency(m_json_value),
+-    m_battery(m_json_value)
++    m_battery(m_json_value),
++    m_network_information(m_json_value)
+ {}
+ 
+ Controller::~Controller() = default;
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index 9725b1cb05e8c..c1e9e497b39fd 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -17,6 +17,7 @@
+ #include "./device_memory/device_memory.h"
+ #include "./hardware_concurrency/hardware_concurrency.h"
+ #include "./battery/battery.h"
++#include "./network_information/network_information.h"
+ 
+ namespace fingerprint {
+ 
+@@ -39,6 +40,7 @@ public:
+   DeviceMemory& GetDeviceMemory() { return m_device_memory; }
+   HardwareConcurrency& GetHardwareConcurrency() { return m_hardware_concurrency; }
+   Battery& GetBattery() { return m_battery; }
++  NetworkInformation& GetNetworkInformation() { return m_network_information; }
+ 
+ private:
+   Controller();
+@@ -58,6 +60,7 @@ private:
+   DeviceMemory m_device_memory;
+   HardwareConcurrency m_hardware_concurrency;
+   Battery m_battery;
++  NetworkInformation m_network_information;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/network_information/network_information.cc b/a_tools/fingerprint/network_information/network_information.cc
+new file mode 100644
+index 0000000000000..66f15e928f226
+--- /dev/null
++++ b/a_tools/fingerprint/network_information/network_information.cc
+@@ -0,0 +1,70 @@
++#include "./network_information.h"
++#include "../utils/random.h"
++#include "../utils/parse_json.h"
++
++namespace fingerprint {
++
++NetworkInformation::NetworkInformation(const absl::optional<base::Value> &json_value) {
++  ParseJson(json_value);
++}
++
++NetworkInformation::~NetworkInformation() = default;
++
++bool NetworkInformation::ParseJson(const absl::optional<base::Value> &json_value) {
++  if (!json_value) return false;
++  if (const base::DictValue* dict = FindDict(json_value.value(), "network_information"); dict) {
++    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
++      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++          FindDouble(params_dict, "rtt", m_rtt);
++          FindBool(params_dict, "save_data", m_save_data);
++          FindDouble(params_dict, "downlink_mbps", m_downlink_mbps);
++          FindString(params_dict, "effective_type", m_effective_type);
++      }
++    }
++    return true;
++  }
++  return false;
++}
++
++void NetworkInformation::ModifyRTT(uint32_t &rtt) {
++  if (m_enabled) {
++    rtt = static_cast<uint32_t>(m_rtt);
++  }
++}
++
++void NetworkInformation::ModifySaveDate(bool &save_data) {
++  if (m_enabled) {
++    save_data = m_save_data;
++  }
++}
++
++void NetworkInformation::ModifyDownlink(double &downlink_mbps) {
++  if (m_enabled) {
++    downlink_mbps = m_downlink_mbps;
++  }
++}
++
++void NetworkInformation::ModifyEffectiveType(blink::WebEffectiveConnectionType &type) {
++  if (m_enabled) {
++    if (m_effective_type == "4g") {
++      type = blink::WebEffectiveConnectionType::kType4G;
++    }
++    else if (m_effective_type == "3g") {
++      type = blink::WebEffectiveConnectionType::kType3G;
++    }
++    else if (m_effective_type == "2g") {
++      type = blink::WebEffectiveConnectionType::kType2G;
++    }
++    else if (m_effective_type == "slow_2g") {
++      type = blink::WebEffectiveConnectionType::kTypeSlow2G;
++    }
++    else if (m_effective_type == "offline") {
++      type = blink::WebEffectiveConnectionType::kTypeOffline;
++    }
++    else {
++      type = blink::WebEffectiveConnectionType::kTypeUnknown;
++    }
++  }
++}
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/network_information/network_information.h b/a_tools/fingerprint/network_information/network_information.h
+new file mode 100644
+index 0000000000000..954280d19703e
+--- /dev/null
++++ b/a_tools/fingerprint/network_information/network_information.h
+@@ -0,0 +1,37 @@
++# pragma once
++
++#include "../base_fingerprint.h"
++#include "base/values.h"
++#include "base/base_export.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++#include "third_party/blink/public/platform/web_effective_connection_type.h"
++
++namespace fingerprint {
++
++class Controller;
++
++class NetworkInformation : public BaseFingerprint {
++public:
++  friend Controller;
++  NetworkInformation(const NetworkInformation&) = delete;
++  NetworkInformation& operator=(const NetworkInformation&) = delete;
++
++private:
++  explicit NetworkInformation(const absl::optional<base::Value> &json_value);
++  ~NetworkInformation() override;
++
++public:
++  bool ParseJson(const absl::optional<base::Value> &json_value) override;
++  BASE_EXPORT void ModifyRTT(uint32_t &rtt);
++  BASE_EXPORT void ModifySaveDate(bool &save_data);
++  BASE_EXPORT void ModifyDownlink(double &downlink_mbps);
++  BASE_EXPORT void ModifyEffectiveType(blink::WebEffectiveConnectionType &type);
++
++private:
++  double m_rtt{0};
++  bool m_save_data{false};
++  double m_downlink_mbps{0};
++  std::string m_effective_type{"4g"};
++};
++
++} // namespace fingerprint
+diff --git a/config.json b/config.json
+index c1cc268f5806f..72248e3435168 100644
+--- a/config.json
++++ b/config.json
+@@ -103,7 +103,7 @@
+     }
+   },
+   "battery": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "level": 1,
+       "charging": true,
+@@ -111,5 +111,14 @@
+       "charging_time": 0,
+       "discharging_time": 2.2
+     }
++  },
++  "network_information": {
++    "enabled": true,
++    "params": {
++      "rtt": 10,
++      "save_data" : true,
++      "downlink_mbps" : 1,
++      "effective_type": "1g"
++    }
+   }
+ }
+diff --git a/third_party/blink/renderer/modules/netinfo/network_information.cc b/third_party/blink/renderer/modules/netinfo/network_information.cc
+index 4452fddcb1bb7..af1c70bae83ec 100644
+--- a/third_party/blink/renderer/modules/netinfo/network_information.cc
++++ b/third_party/blink/renderer/modules/netinfo/network_information.cc
+@@ -2,9 +2,14 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #include "third_party/blink/renderer/modules/netinfo/network_information.h"
+ 
+ #include <algorithm>
++#include <cstdio>
+ 
+ #include "base/time/time.h"
+ #include "third_party/blink/public/mojom/devtools/console_message.mojom-blink.h"
+@@ -111,6 +116,16 @@ double NetworkInformation::downlinkMax() const {
+ 
+ V8EffectiveConnectionType NetworkInformation::effectiveType() {
+   MaybeShowWebHoldbackConsoleMsg();
++
++  #ifdef ENABLE_FINGERPRINT
++  if (fingerprint::Controller::GetInstance().GetNetworkInformation().Enabled()) {
++    fingerprint::Controller::GetInstance().GetNetworkInformation().ModifyEffectiveType(
++        effective_type_); // NOTE: Yzhyi 原函数可能不是直接返回的 effective_type_，因此修改后直接返回
++    return V8EffectiveConnectionType(
++        EffectiveConnectionTypeToEnum(effective_type_));
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   std::optional<WebEffectiveConnectionType> override_ect =
+       GetNetworkStateNotifier().GetWebHoldbackEffectiveType();
+   if (override_ect) {
+@@ -131,6 +146,14 @@ V8EffectiveConnectionType NetworkInformation::effectiveType() {
+ }
+ 
+ uint32_t NetworkInformation::rtt() {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (fingerprint::Controller::GetInstance().GetNetworkInformation().Enabled()) {
++    fingerprint::Controller::GetInstance().GetNetworkInformation().ModifyRTT(http_rtt_msec_);
++    return http_rtt_msec_;
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   MaybeShowWebHoldbackConsoleMsg();
+   std::optional<base::TimeDelta> override_rtt =
+       GetNetworkStateNotifier().GetWebHoldbackHttpRtt();
+@@ -147,6 +170,14 @@ uint32_t NetworkInformation::rtt() {
+ }
+ 
+ double NetworkInformation::downlink() {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (fingerprint::Controller::GetInstance().GetNetworkInformation().Enabled()) {
++    fingerprint::Controller::GetInstance().GetNetworkInformation().ModifyDownlink(downlink_mbps_);
++    return downlink_mbps_;
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   MaybeShowWebHoldbackConsoleMsg();
+   std::optional<double> override_downlink_mbps =
+       GetNetworkStateNotifier().GetWebHoldbackDownlinkThroughputMbps();
+@@ -164,6 +195,14 @@ double NetworkInformation::downlink() {
+ }
+ 
+ bool NetworkInformation::saveData() const {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (fingerprint::Controller::GetInstance().GetNetworkInformation().Enabled()) {
++    fingerprint::Controller::GetInstance().GetNetworkInformation().ModifySaveDate(const_cast<NetworkInformation*>(this)->save_data_);
++    return save_data_;
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return IsObserving() ? save_data_
+                        : GetNetworkStateNotifier().SaveDataEnabled();
+ }
+-- 
+2.43.0
+

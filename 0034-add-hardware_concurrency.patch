@@ -1,0 +1,193 @@
+From 8ab98deaf8cf2764af52e31693348d0ba39d6ec4 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Tue, 21 Oct 2025 19:15:16 +0800
+Subject: [PATCH 34/68] add hardware_concurrency
+
+---
+ a_tools/BUILD.gn                              |  2 ++
+ a_tools/fingerprint/controller.cc             |  3 +-
+ a_tools/fingerprint/controller.h              |  3 ++
+ .../hardware_concurrency.cc                   | 35 +++++++++++++++++++
+ .../hardware_concurrency.h                    | 29 +++++++++++++++
+ config.json                                   |  2 +-
+ .../frame/navigator_concurrent_hardware.cc    | 11 ++++++
+ 7 files changed, 83 insertions(+), 2 deletions(-)
+ create mode 100644 a_tools/fingerprint/hardware_concurrency/hardware_concurrency.cc
+ create mode 100644 a_tools/fingerprint/hardware_concurrency/hardware_concurrency.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index 2a7011f5ae206..8cad55b0aa454 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -30,6 +30,8 @@ static_library("a_tools") {
+     "fingerprint/tls/tls.cc",
+     "fingerprint/device_memory/device_memory.h",
+     "fingerprint/device_memory/device_memory.cc",
++    "fingerprint/hardware_concurrency/hardware_concurrency.h",
++    "fingerprint/hardware_concurrency/hardware_concurrency.cc",
+   ]
+ 
+   # public_deps = [
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index bdc638f561337..b1cfa7d83ae29 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -17,7 +17,8 @@ Controller::Controller()
+     m_webgpu(m_json_value),
+     m_webrtc(m_json_value),
+     m_tls(m_json_value),
+-    m_device_memory(m_json_value)
++    m_device_memory(m_json_value),
++    m_hardware_concurrency(m_json_value)
+ {}
+ 
+ Controller::~Controller() = default;
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index fe6058fe3e2ca..563081e597b77 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -15,6 +15,7 @@
+ #include "a_tools/fingerprint/webrtc/webrtc.h"
+ #include "a_tools/fingerprint/tls/tls.h"
+ #include "a_tools/fingerprint/device_memory/device_memory.h"
++#include "a_tools/fingerprint/hardware_concurrency/hardware_concurrency.h"
+ 
+ namespace fingerprint {
+ 
+@@ -35,6 +36,7 @@ public:
+   WebRTC& GetWebRTC() { return m_webrtc; }
+   TLS& GetTLS() { return m_tls; }
+   DeviceMemory& GetDeviceMemory() { return m_device_memory; }
++  HardwareConcurrency& GetHardwareConcurrency() { return m_hardware_concurrency; }
+ 
+ private:
+   Controller();
+@@ -52,6 +54,7 @@ private:
+   WebRTC m_webrtc;
+   TLS m_tls;
+   DeviceMemory m_device_memory;
++  HardwareConcurrency m_hardware_concurrency;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.cc b/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.cc
+new file mode 100644
+index 0000000000000..0066ecce97169
+--- /dev/null
++++ b/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.cc
+@@ -0,0 +1,35 @@
++#include "hardware_concurrency.h"
++#include "a_tools/fingerprint/utils/random.h"
++#include "a_tools/fingerprint/utils/parse_json.h"
++#include <cstdint>
++#include <iostream>
++
++namespace fingerprint {
++
++HardwareConcurrency::HardwareConcurrency(const absl::optional<base::Value> &json_value) {
++  ParseJson(json_value);
++}
++
++HardwareConcurrency::~HardwareConcurrency() = default;
++
++bool HardwareConcurrency::ParseJson(const absl::optional<base::Value> &json_value) {
++  if (!json_value) return false;
++  if (const base::DictValue* dict = FindDict(json_value.value(), "hardware_concurrency"); dict) {
++    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
++      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        FindDouble(params_dict, "cores", m_cores);
++      }
++    }
++    return true;
++  }
++  return false;
++}
++
++unsigned HardwareConcurrency::ModifyHardwareConcurrency(unsigned cores) {
++  if (m_enabled) {
++    return m_cores;
++  }
++  return cores;
++}
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.h b/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.h
+new file mode 100644
+index 0000000000000..b4f0c13f7a429
+--- /dev/null
++++ b/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.h
+@@ -0,0 +1,29 @@
++# pragma once
++
++#include "a_tools/fingerprint/base_fingerprint.h"
++#include "base/values.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++
++namespace fingerprint {
++
++class Controller;
++
++class HardwareConcurrency : public BaseFingerprint {
++public:
++  friend Controller;
++  HardwareConcurrency(const HardwareConcurrency&) = delete;
++  HardwareConcurrency& operator=(const HardwareConcurrency&) = delete;
++
++private:
++  explicit HardwareConcurrency(const absl::optional<base::Value> &json_value);
++  ~HardwareConcurrency() override;
++
++public:
++  bool ParseJson(const absl::optional<base::Value> &json_value) override;
++  unsigned ModifyHardwareConcurrency(unsigned cores);
++
++private:
++  double m_cores{0};
++};
++
++} // namespace fingerprint
+diff --git a/config.json b/config.json
+index 9068b4813d1f7..cd96404a511b1 100644
+--- a/config.json
++++ b/config.json
+@@ -92,7 +92,7 @@
+     }
+   },
+   "hardware_concurrency": {
+-    "enabled": false,
++    "enabled": true,
+     "params": {
+       "cores": 8
+     }
+diff --git a/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc b/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc
+index f5c0db2d1b58d..6c5166ae3d407 100644
+--- a/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc
++++ b/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++// Yzhyi start
++#include "a_tools/fingerprint/controller.h"
++// Yzhyi end
++
+ #include "third_party/blink/renderer/core/frame/navigator_concurrent_hardware.h"
+ 
+ #include "base/system/sys_info.h"
+@@ -9,6 +13,13 @@
+ namespace blink {
+ 
+ unsigned NavigatorConcurrentHardware::hardwareConcurrency() const {
++
++  // Yzhyi start
++  if (fingerprint::Controller::GetInstance().GetHardwareConcurrency().Enabled()) {
++    return fingerprint::Controller::GetInstance().GetHardwareConcurrency().ModifyHardwareConcurrency(static_cast<unsigned>(base::SysInfo::NumberOfProcessors()));
++  }
++  // Yzhyi end
++
+   return static_cast<unsigned>(base::SysInfo::NumberOfProcessors());
+ }
+ 
+-- 
+2.43.0
+

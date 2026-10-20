@@ -1,0 +1,430 @@
+From 2cf484fa8d33e13773842a274508184b034eb5e5 Mon Sep 17 00:00:00 2001
+From: yuzhengyi02 <yuzhengyi02@meituan.com>
+Date: Thu, 18 Sep 2025 19:19:35 +0800
+Subject: [PATCH 24/68] add BaseFingerprint
+
+---
+ a_tools/BUILD.gn                        |  2 ++
+ a_tools/fingerprint/base_fingerprint.cc |  5 +++++
+ a_tools/fingerprint/base_fingerprint.h  | 26 +++++++++++++++++++++++++
+ a_tools/fingerprint/canvas/canvas.cc    |  8 ++++----
+ a_tools/fingerprint/canvas/canvas.h     | 11 +++++------
+ a_tools/fingerprint/fonts/fonts.cc      |  8 ++++----
+ a_tools/fingerprint/fonts/fonts.h       | 11 +++++------
+ a_tools/fingerprint/webgl/webgl.cc      | 16 +++++++--------
+ a_tools/fingerprint/webgl/webgl.h       | 11 +++++------
+ a_tools/fingerprint/webgpu/webgpu.cc    | 22 ++++++++++-----------
+ a_tools/fingerprint/webgpu/webgpu.h     | 11 +++++------
+ 11 files changed, 80 insertions(+), 51 deletions(-)
+ create mode 100644 a_tools/fingerprint/base_fingerprint.cc
+ create mode 100644 a_tools/fingerprint/base_fingerprint.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index 7b4ae08f8dae4..233cdfc451c41 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -10,6 +10,8 @@ static_library("a_tools") {
+   sources = [
+     "fingerprint/controller.h",
+     "fingerprint/controller.cc",
++    "fingerprint/base_fingerprint.h",
++    "fingerprint/base_fingerprint.cc",
+     "fingerprint/utils/random.h",
+     "fingerprint/utils/random.cc",
+     "fingerprint/canvas/canvas.h",
+diff --git a/a_tools/fingerprint/base_fingerprint.cc b/a_tools/fingerprint/base_fingerprint.cc
+new file mode 100644
+index 0000000000000..d0e87c5f1228c
+--- /dev/null
++++ b/a_tools/fingerprint/base_fingerprint.cc
+@@ -0,0 +1,5 @@
++#include "base_fingerprint.h"
++
++namespace fingerprint {
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/base_fingerprint.h b/a_tools/fingerprint/base_fingerprint.h
+new file mode 100644
+index 0000000000000..44ba79ef1f0a3
+--- /dev/null
++++ b/a_tools/fingerprint/base_fingerprint.h
+@@ -0,0 +1,26 @@
++# pragma once
++
++#include "base/values.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++
++namespace fingerprint {
++
++class Controller;
++
++class BaseFingerprint {
++public:
++  friend Controller;
++  BaseFingerprint() = default;
++  BaseFingerprint(const BaseFingerprint&) = delete;
++  BaseFingerprint& operator=(const BaseFingerprint&) = delete;
++  virtual ~BaseFingerprint() = default;
++  
++public:
++  virtual bool ParseJson(const absl::optional<base::Value> &json_value) = 0;
++  bool Enabled() { return m_enabled; }
++
++protected:
++  bool m_enabled{false};
++};
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/canvas/canvas.cc b/a_tools/fingerprint/canvas/canvas.cc
+index b03b60102f6b7..34bde8360cefb 100644
+--- a/a_tools/fingerprint/canvas/canvas.cc
++++ b/a_tools/fingerprint/canvas/canvas.cc
+@@ -3,20 +3,20 @@
+ 
+ namespace fingerprint {
+ 
+-Canvas::Canvas(absl::optional<base::Value> &json_value) {
++Canvas::Canvas(const absl::optional<base::Value> &json_value) {
+   ParseJson(json_value);
+ }
+ 
+ Canvas::~Canvas() = default;
+ 
+-bool Canvas::ParseJson(absl::optional<base::Value> &json_value) {
++bool Canvas::ParseJson(const absl::optional<base::Value> &json_value) {
+   if (!json_value) return false;
+-  base::DictValue* dict = json_value->GetDict().FindDict("canvas");
++  const base::DictValue* dict = json_value->GetDict().FindDict("canvas");
+   if (dict) {
+     std::optional<bool> enabled = dict->FindBool("enabled");
+     if (enabled.has_value() && enabled.value()) {
+       m_enabled = enabled.value();
+-      base::DictValue* params_dict = dict->FindDict("params");
++      const base::DictValue* params_dict = dict->FindDict("params");
+       if (params_dict) {
+         std::optional<double> width = params_dict->FindDouble("width");
+         if (width.has_value()) {
+diff --git a/a_tools/fingerprint/canvas/canvas.h b/a_tools/fingerprint/canvas/canvas.h
+index c16884db9f724..66288b82d9fc3 100644
+--- a/a_tools/fingerprint/canvas/canvas.h
++++ b/a_tools/fingerprint/canvas/canvas.h
+@@ -3,6 +3,7 @@
+ #include <string>
+ #include <unordered_map>
+ 
++#include "a_tools/fingerprint/base_fingerprint.h"
+ #include "base/values.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+@@ -11,19 +12,18 @@ namespace fingerprint {
+ 
+ class Controller;
+ 
+-class Canvas {
++class Canvas : public BaseFingerprint {
+ public:
+   friend Controller;
+   Canvas(const Canvas&) = delete;
+   Canvas& operator=(const Canvas&) = delete;
+ 
+ private:
+-  explicit Canvas(absl::optional<base::Value> &json_value);
+-  ~Canvas();
++  explicit Canvas(const absl::optional<base::Value> &json_value);
++  ~Canvas() override;
+   
+ public:
+-  bool ParseJson(absl::optional<base::Value> &json_value);
+-  bool Enabled() { return m_enabled; }
++  bool ParseJson(const absl::optional<base::Value> &json_value) override;
+ 
+   void ModifyWidth(unsigned &value);
+   void ModifyHeight(unsigned &value);
+@@ -34,7 +34,6 @@ public:
+   void ModifyDataURL(String &data_url);
+ 
+ private:
+-  bool m_enabled{false};
+   double m_width{0};
+   double m_height{0};
+   double m_rect_x{0};
+diff --git a/a_tools/fingerprint/fonts/fonts.cc b/a_tools/fingerprint/fonts/fonts.cc
+index 144f312d56123..6320545bbde74 100644
+--- a/a_tools/fingerprint/fonts/fonts.cc
++++ b/a_tools/fingerprint/fonts/fonts.cc
+@@ -3,20 +3,20 @@
+ 
+ namespace fingerprint {
+ 
+-Fonts::Fonts(absl::optional<base::Value> &json_value) {
++Fonts::Fonts(const absl::optional<base::Value> &json_value) {
+   ParseJson(json_value);
+ }
+ 
+ Fonts::~Fonts() = default;
+ 
+-bool Fonts::ParseJson(absl::optional<base::Value> &json_value) {
++bool Fonts::ParseJson(const absl::optional<base::Value> &json_value) {
+   if (!json_value) return false;
+-  base::DictValue* dict = json_value->GetDict().FindDict("fonts");
++  const base::DictValue* dict = json_value->GetDict().FindDict("fonts");
+   if (dict) {
+     std::optional<bool> enabled = dict->FindBool("enabled");
+     if (enabled.has_value() && enabled.value()) {
+       m_enabled = enabled.value();
+-      base::DictValue* params_dict = dict->FindDict("params");
++      const base::DictValue* params_dict = dict->FindDict("params");
+       if (params_dict) {
+         std::optional<double> noise_min = params_dict->FindDouble("noise_min");
+         if (noise_min.has_value()) {
+diff --git a/a_tools/fingerprint/fonts/fonts.h b/a_tools/fingerprint/fonts/fonts.h
+index 351620721f5da..6f74dcdc2df18 100644
+--- a/a_tools/fingerprint/fonts/fonts.h
++++ b/a_tools/fingerprint/fonts/fonts.h
+@@ -3,6 +3,7 @@
+ #include <string>
+ #include <unordered_map>
+ 
++#include "a_tools/fingerprint/base_fingerprint.h"
+ #include "base/values.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+@@ -10,24 +11,22 @@ namespace fingerprint {
+ 
+ class Controller;
+ 
+-class Fonts {
++class Fonts : public BaseFingerprint {
+ public:
+   friend Controller;
+   Fonts(const Fonts&) = delete;
+   Fonts& operator=(const Fonts&) = delete;
+ 
+ private:
+-  explicit Fonts(absl::optional<base::Value> &json_value);
+-  ~Fonts();
++  explicit Fonts(const absl::optional<base::Value> &json_value);
++  ~Fonts() override;
+   
+ public:
+-  bool ParseJson(absl::optional<base::Value> &json_value);
+-  bool Enabled() { return m_enabled; }
++  bool ParseJson(const absl::optional<base::Value> &json_value) override;
+ 
+   int GetNoise();
+ 
+ private:
+-  bool m_enabled{false};
+   double m_noise_min{0};
+   double m_noise_max{0};
+ };
+diff --git a/a_tools/fingerprint/webgl/webgl.cc b/a_tools/fingerprint/webgl/webgl.cc
+index bdba8fab7d499..1bfe69b643ccd 100644
+--- a/a_tools/fingerprint/webgl/webgl.cc
++++ b/a_tools/fingerprint/webgl/webgl.cc
+@@ -4,38 +4,38 @@
+ 
+ namespace fingerprint {
+ 
+-WebGL::WebGL(absl::optional<base::Value> &json_value) {
++WebGL::WebGL(const absl::optional<base::Value> &json_value) {
+   ParseJson(json_value);
+ }
+ 
+ WebGL::~WebGL() = default;
+ 
+-bool WebGL::ParseJson(absl::optional<base::Value> &json_value) {
++bool WebGL::ParseJson(const absl::optional<base::Value> &json_value) {
+   if (!json_value) return false;
+-  base::DictValue* dict = json_value->GetDict().FindDict("webgl");
++  const base::DictValue* dict = json_value->GetDict().FindDict("webgl");
+   if (dict) {
+     std::optional<bool> enabled = dict->FindBool("enabled");
+     if (enabled.has_value() && enabled.value()) {
+       m_enabled = enabled.value();
+-      base::DictValue* params_dict = dict->FindDict("params");
++      const base::DictValue* params_dict = dict->FindDict("params");
+       if (params_dict) {
+-        std::string* unmasked_vendor_webgl = params_dict->FindString("unmasked_vendor_webgl");
++        const std::string* unmasked_vendor_webgl = params_dict->FindString("unmasked_vendor_webgl");
+         if (unmasked_vendor_webgl) {
+           m_unmasked_vendor_webgl = *unmasked_vendor_webgl;
+         }
+-        std::string* unmasked_renderer_webgl = params_dict->FindString("unmasked_renderer_webgl");
++        const std::string* unmasked_renderer_webgl = params_dict->FindString("unmasked_renderer_webgl");
+         if (unmasked_renderer_webgl) {
+           m_unmasked_renderer_webgl = *unmasked_renderer_webgl;
+         }
+       }
+-      base::DictValue* extensions_dict = dict->FindDict("extensions");
++      const base::DictValue* extensions_dict = dict->FindDict("extensions");
+       if (extensions_dict) {
+         std::optional<bool> extensions_random_shuffle = extensions_dict->FindBool("random_shuffle");
+         if (extensions_random_shuffle.has_value()) {
+           m_extensions_random_shuffle_enable = extensions_random_shuffle.value();
+         }
+       }
+-      base::DictValue* pixels_dict = dict->FindDict("pixels");
++      const base::DictValue* pixels_dict = dict->FindDict("pixels");
+       if (pixels_dict) {
+         std::optional<double> pixels_x = pixels_dict->FindDouble("x");
+         if (pixels_x.has_value()) {
+diff --git a/a_tools/fingerprint/webgl/webgl.h b/a_tools/fingerprint/webgl/webgl.h
+index 2e7583f653357..d76fbb61b02cc 100644
+--- a/a_tools/fingerprint/webgl/webgl.h
++++ b/a_tools/fingerprint/webgl/webgl.h
+@@ -3,6 +3,7 @@
+ #include <string>
+ #include <unordered_map>
+ 
++#include "a_tools/fingerprint/base_fingerprint.h"
+ #include "base/values.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+@@ -11,19 +12,18 @@ namespace fingerprint {
+ 
+ class Controller;
+ 
+-class WebGL {
++class WebGL : public BaseFingerprint {
+ public:
+   friend Controller;
+   WebGL(const WebGL&) = delete;
+   WebGL& operator=(const WebGL&) = delete;
+ 
+ private:
+-  explicit WebGL(absl::optional<base::Value> &json_value);
+-  ~WebGL();
++  explicit WebGL(const absl::optional<base::Value> &json_value);
++  ~WebGL() override;
+   
+ public:
+-  bool ParseJson(absl::optional<base::Value> &json_value);
+-  bool Enabled() { return m_enabled; }
++  bool ParseJson(const absl::optional<base::Value> &json_value) override;
+ 
+   std::string GetUnmaskedVendorWebgl();
+   std::string GetUnmaskedRendererWebgl();
+@@ -34,7 +34,6 @@ public:
+   void ModifyPixelsHeight(int &value);
+ 
+ private:
+-  bool m_enabled{false};
+   std::string m_unmasked_vendor_webgl;
+   std::string m_unmasked_renderer_webgl;
+   bool m_extensions_random_shuffle_enable{false};
+diff --git a/a_tools/fingerprint/webgpu/webgpu.cc b/a_tools/fingerprint/webgpu/webgpu.cc
+index b559df37e33ad..27d2f00faae69 100644
+--- a/a_tools/fingerprint/webgpu/webgpu.cc
++++ b/a_tools/fingerprint/webgpu/webgpu.cc
+@@ -2,36 +2,36 @@
+ 
+ namespace fingerprint {
+ 
+-WebGPU::WebGPU(absl::optional<base::Value> &json_value) {
++WebGPU::WebGPU(const absl::optional<base::Value> &json_value) {
+   ParseJson(json_value);
+ }
+ 
+ WebGPU::~WebGPU() = default;
+ 
+-bool WebGPU::ParseJson(absl::optional<base::Value> &json_value) {
++bool WebGPU::ParseJson(const absl::optional<base::Value> &json_value) {
+   if (!json_value) return false;
+-  base::DictValue* dict = json_value->GetDict().FindDict("webgpu");
++  const base::DictValue* dict = json_value->GetDict().FindDict("webgpu");
+   if (dict) {
+     std::optional<bool> enabled = dict->FindBool("enabled");
+     if (enabled.has_value() && enabled.value()) {
+       m_enabled = enabled.value();
+-      base::DictValue* params_dict = dict->FindDict("params");
++      const base::DictValue* params_dict = dict->FindDict("params");
+       if (params_dict) {
+-        base::DictValue* params_info_dict = params_dict->FindDict("info");
++        const base::DictValue* params_info_dict = params_dict->FindDict("info");
+         if (params_info_dict) {
+-          std::string* vendor = params_info_dict->FindString("vendor");
++          const std::string* vendor = params_info_dict->FindString("vendor");
+           if (vendor) {
+             m_vendor = *vendor;
+           }
+-          std::string* architecture = params_info_dict->FindString("architecture");
++          const std::string* architecture = params_info_dict->FindString("architecture");
+           if (architecture) {
+             m_architecture = *architecture;
+           }
+-          std::string* device = params_info_dict->FindString("device");
++          const std::string* device = params_info_dict->FindString("device");
+           if (device) {
+             m_device = *device;
+           }
+-          std::string* description = params_info_dict->FindString("description");
++          const std::string* description = params_info_dict->FindString("description");
+           if (description) {
+             m_description = *description;
+           }
+@@ -41,7 +41,7 @@ bool WebGPU::ParseJson(absl::optional<base::Value> &json_value) {
+             m_is_fallback_adapter = is_fallback_adapter.value();
+           }
+         }
+-        base::DictValue* params_limits_dict = params_dict->FindDict("limits");
++        const base::DictValue* params_limits_dict = params_dict->FindDict("limits");
+         if (params_limits_dict) {
+           for (auto it = params_limits_dict->begin(); it != params_limits_dict->end(); ++it) {
+             // std::cout << it->first << ": " << it->second << ' ' << it->second.type() << std::endl;
+@@ -53,7 +53,7 @@ bool WebGPU::ParseJson(absl::optional<base::Value> &json_value) {
+             }
+           }
+         }
+-        base::DictValue* params_features_dict = params_dict->FindDict("features");
++        const base::DictValue* params_features_dict = params_dict->FindDict("features");
+         if (params_features_dict) {
+           for (auto it = params_features_dict->begin(); it != params_features_dict->end(); ++it) {
+             // std::cout << it->first << ": " << it->second << ' ' << it->second.type() << std::endl;
+diff --git a/a_tools/fingerprint/webgpu/webgpu.h b/a_tools/fingerprint/webgpu/webgpu.h
+index 1aff6c021d6f3..b9d1da9203a9b 100644
+--- a/a_tools/fingerprint/webgpu/webgpu.h
++++ b/a_tools/fingerprint/webgpu/webgpu.h
+@@ -3,6 +3,7 @@
+ #include <string>
+ #include <unordered_map>
+ 
++#include "a_tools/fingerprint/base_fingerprint.h"
+ #include "base/values.h"
+ #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+@@ -11,19 +12,18 @@ namespace fingerprint {
+ 
+ class Controller;
+ 
+-class WebGPU {
++class WebGPU : public BaseFingerprint {
+ public:
+   friend Controller;
+   WebGPU(const WebGPU&) = delete;
+   WebGPU& operator=(const WebGPU&) = delete;
+ 
+ private:
+-  explicit WebGPU(absl::optional<base::Value> &json_value);
+-  ~WebGPU();
++  explicit WebGPU(const absl::optional<base::Value> &json_value);
++  ~WebGPU() override;
+   
+ public:
+-  bool ParseJson(absl::optional<base::Value> &json_value);
+-  bool Enabled() { return m_enabled; }
++  bool ParseJson(const absl::optional<base::Value> &json_value) override;
+ 
+   void ModifyVendor(String &vendor);
+   void ModifyArchitecture(String &architecture);
+@@ -35,7 +35,6 @@ public:
+   std::unordered_map<std::string, bool> GetFeatures();
+ 
+ private:
+-  bool m_enabled{false};
+   // info
+   std::string m_vendor;
+   std::string m_architecture;
+-- 
+2.43.0
+

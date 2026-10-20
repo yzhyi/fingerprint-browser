@@ -1,0 +1,638 @@
+From 9fe663edfb04bdf93ea4588e5a6791cf34c461bd Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Wed, 14 Jan 2026 22:30:56 +0800
+Subject: [PATCH 66/68] add cdp_detection
+
+---
+ a_tools/BUILD.gn                              |  2 +
+ a_tools/README.md                             | 16 ++++
+ a_tools/fingerprint/base_fingerprint.h        |  5 +-
+ a_tools/fingerprint/battery/battery.h         |  1 -
+ a_tools/fingerprint/canvas/canvas.h           |  1 -
+ .../cdp_detection/cdp_detection.cc            | 51 ++++++++++++
+ .../fingerprint/cdp_detection/cdp_detection.h | 28 +++++++
+ .../fingerprint/client_rects/client_rects.h   |  1 -
+ a_tools/fingerprint/controller.cc             | 80 ++++++++++++-------
+ a_tools/fingerprint/controller.h              | 16 +++-
+ .../fingerprint/device_memory/device_memory.h |  1 -
+ .../fingerprint/do_not_track/do_not_track.h   |  1 -
+ a_tools/fingerprint/fonts/fonts.h             |  1 -
+ .../hardware_concurrency.h                    |  1 -
+ a_tools/fingerprint/language/language.h       |  1 -
+ a_tools/fingerprint/navigator/navigator.h     |  1 -
+ .../network_information/network_information.h |  1 -
+ a_tools/fingerprint/tls/tls.h                 |  1 -
+ a_tools/fingerprint/touch/touch.h             |  1 -
+ a_tools/fingerprint/user_agent/user_agent.h   |  1 -
+ a_tools/fingerprint/webaudio/webaudio.h       |  1 -
+ a_tools/fingerprint/webgl/webgl.h             |  1 -
+ a_tools/fingerprint/webgpu/webgpu.h           |  1 -
+ a_tools/fingerprint/webrtc/webrtc.h           |  1 -
+ .../fingerprint/window_screen/window_screen.h |  1 -
+ config.json                                   | 18 ++++-
+ 26 files changed, 181 insertions(+), 53 deletions(-)
+ create mode 100644 a_tools/fingerprint/cdp_detection/cdp_detection.cc
+ create mode 100644 a_tools/fingerprint/cdp_detection/cdp_detection.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index e07ca4465709a..cd19ba77b94ab 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -57,6 +57,8 @@ source_set("a_tools") {
+     "fingerprint/language/language.cc",
+     "fingerprint/client_rects/client_rects.h",
+     "fingerprint/client_rects/client_rects.cc",
++    "fingerprint/cdp_detection/cdp_detection.h",
++    "fingerprint/cdp_detection/cdp_detection.cc",
+   ]
+   deps = [
+     "//base/allocator/partition_allocator:raw_ptr",
+diff --git a/a_tools/README.md b/a_tools/README.md
+index 710b1d43b85b3..36bbacea482a2 100644
+--- a/a_tools/README.md
++++ b/a_tools/README.md
+@@ -36,6 +36,11 @@ base/system/sys_info_posix.cc:SysInfo::OperatingSystemArchitecture() -> header 
+ * 插件指纹(creepjs 需要关注 mimeTypes)
+ * 无头检测
+ 
++# Test
++## https://pixelscan.net/fingerprint-check
++* webgl.pixels
++* window_screen
++
+ # navigator, ua, client hints 要统一
+ 
+ # IP 指纹关联
+@@ -48,3 +53,14 @@ base/system/sys_info_posix.cc:SysInfo::OperatingSystemArchitecture() -> header 
+ * UA 指纹返回的是浏览器的代理字符串，这些信息在 navigator 对象中也是存在的，所以要保持 navigator 中的这类信息和定制的 UA 保持一致
+ * Javascript 层 的 UA 信息和 HTTP 层的 UA 信息保持一致
+ * Client Hints 指纹需与 UA 信息同步
++
++# 运行参数
++* --proxy-server
++* --no-default-browser-check: 关闭默认浏览器检查
++* --no-first-run: 跳过首次运行向导
++* --disable-webgl
++
++# GIT 未记录
++## CDP
++v8/src/inspector/BUILD.gn
++v8/src/inspector/v8-console.cc
+diff --git a/a_tools/fingerprint/base_fingerprint.h b/a_tools/fingerprint/base_fingerprint.h
+index aa1fab2539113..e06bdb4a17efb 100644
+--- a/a_tools/fingerprint/base_fingerprint.h
++++ b/a_tools/fingerprint/base_fingerprint.h
+@@ -1,8 +1,11 @@
+ # pragma once
+ 
+-#include "base/values.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
++namespace base {
++class Value;
++}
++
+ namespace fingerprint {
+ 
+ class Controller;
+diff --git a/a_tools/fingerprint/battery/battery.h b/a_tools/fingerprint/battery/battery.h
+index 8bc69429ce6d0..3e8a77398363f 100644
+--- a/a_tools/fingerprint/battery/battery.h
++++ b/a_tools/fingerprint/battery/battery.h
+@@ -2,7 +2,6 @@
+ 
+ #include <cstdint>
+ #include "../base_fingerprint.h"
+-#include "base/values.h"
+ #include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+diff --git a/a_tools/fingerprint/canvas/canvas.h b/a_tools/fingerprint/canvas/canvas.h
+index 7c8af2e0f3a64..e9d0e945885b1 100644
+--- a/a_tools/fingerprint/canvas/canvas.h
++++ b/a_tools/fingerprint/canvas/canvas.h
+@@ -1,7 +1,6 @@
+ # pragma once
+ 
+ #include "../base_fingerprint.h"
+-#include "base/values.h"
+ #include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+diff --git a/a_tools/fingerprint/cdp_detection/cdp_detection.cc b/a_tools/fingerprint/cdp_detection/cdp_detection.cc
+new file mode 100644
+index 0000000000000..b2e2eadfea7e1
+--- /dev/null
++++ b/a_tools/fingerprint/cdp_detection/cdp_detection.cc
+@@ -0,0 +1,51 @@
++#include "./cdp_detection.h"
++#include "../utils/parse_json.h"
++
++namespace fingerprint {
++
++CdpDetection::CdpDetection(const absl::optional<base::Value> &json_value) {
++  ParseJson(json_value);
++}
++
++CdpDetection::~CdpDetection() = default;
++
++bool CdpDetection::ParseJson(const absl::optional<base::Value> &json_value) {
++  if (!json_value) return false;
++  if (const base::DictValue* dict = FindDict(json_value.value(), "cdp_detection"); dict) {
++    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
++      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        if (const base::DictValue* console_api_dict = FindDict(params_dict, "console_api"); console_api_dict) {
++          FindBool(console_api_dict, "debug_disabled", m_console_api_debug_disabled);
++          FindBool(console_api_dict, "error_disabled", m_console_api_error_disabled);
++          FindBool(console_api_dict, "info_disabled", m_console_api_info_disabled);
++          FindBool(console_api_dict, "log_disabled", m_console_api_log_disabled);
++          FindBool(console_api_dict, "warn_disabled", m_console_api_warn_disabled);
++        }
++      }
++    }
++    return true;
++  }
++  return false;
++}
++
++bool CdpDetection::ConsoleApiDebugDisabled() {
++  return m_console_api_debug_disabled;
++}
++
++bool CdpDetection::ConsoleApiErrorDisabled() {
++  return m_console_api_error_disabled;
++}
++
++bool CdpDetection::ConsoleApiInfoDisabled() {
++  return m_console_api_info_disabled;
++}
++
++bool CdpDetection::ConsoleApiLogDisabled() {
++  return m_console_api_log_disabled;
++}
++
++bool CdpDetection::ConsoleApiWarnDisabled() {
++  return m_console_api_warn_disabled;
++}
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/cdp_detection/cdp_detection.h b/a_tools/fingerprint/cdp_detection/cdp_detection.h
+new file mode 100644
+index 0000000000000..d694e2393a51d
+--- /dev/null
++++ b/a_tools/fingerprint/cdp_detection/cdp_detection.h
+@@ -0,0 +1,28 @@
++# pragma once
++
++#include "../base_fingerprint.h"
++#include "base/base_export.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++
++namespace fingerprint {
++
++FINGERPRINT_CLASS_DECLARE(CdpDetection);
++
++public:
++  BASE_EXPORT bool ConsoleApiDebugDisabled();
++  BASE_EXPORT bool ConsoleApiErrorDisabled();
++  BASE_EXPORT bool ConsoleApiInfoDisabled();
++  BASE_EXPORT bool ConsoleApiLogDisabled();
++  BASE_EXPORT bool ConsoleApiWarnDisabled();
++
++private:
++  bool m_console_api_debug_disabled{false};
++  bool m_console_api_error_disabled{false};
++  bool m_console_api_info_disabled{false};
++  bool m_console_api_log_disabled{false};
++  bool m_console_api_warn_disabled{false};
++
++FINGERPRINT_CLASS_END();
++
++} // namespace fingerprint
++
+diff --git a/a_tools/fingerprint/client_rects/client_rects.h b/a_tools/fingerprint/client_rects/client_rects.h
+index 690722c2ee99c..0111267f6e530 100644
+--- a/a_tools/fingerprint/client_rects/client_rects.h
++++ b/a_tools/fingerprint/client_rects/client_rects.h
+@@ -1,7 +1,6 @@
+ # pragma once
+ 
+ #include "../base_fingerprint.h"
+-#include "base/values.h"
+ #include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index c000cb1d53a24..57d8cafc10bca 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -1,38 +1,62 @@
+ #include "./controller.h"
+ #include <atomic>
+ #include "base/json/json_reader.h"
++#include "base/memory/raw_ptr.h"
++#include "base/command_line.h"
+ #include "base/logging.h"
+ 
+ namespace fingerprint {
+ 
+ const char kFingerprint[] = "fp";
+ 
++// 静态辅助函数：解析 JSON 字符串，利用静态变量确保只解析一次
++static const absl::optional<base::Value>& GetParsedJson(bool enabled, const std::string& json_str) {
++  static bool initialized = false;
++  static absl::optional<base::Value> cached_json_value;
++
++  if (!initialized) {
++    initialized = true;
++    if (enabled && !json_str.empty()) {
++      cached_json_value = base::JSONReader::Read(json_str);
++    }
++  }
++
++  return cached_json_value;
++}
++
++// CommandLineHolder 的实现 - 隐藏 raw_ptr 在 .cc 文件中
++class CommandLineHolder {
++ public:
++  CommandLineHolder() : m_command_line(base::CommandLine::ForCurrentProcess()) {}
++
++  raw_ptr<const base::CommandLine> m_command_line;
++};
++
+ Controller::Controller()
+-  : m_command_line(base::CommandLine::ForCurrentProcess()),
+-    m_enabled(m_command_line->HasSwitch(kFingerprint)),
+-    m_json_str(m_enabled ? m_command_line->GetSwitchValueASCII(kFingerprint) : std::string{}),
+-    m_json_value(m_enabled ? base::JSONReader::Read(m_json_str) : absl::nullopt),
+-    m_canvas(m_json_value),
+-    m_webgl(m_json_value),
+-    m_fonts(m_json_value),
+-    m_webgpu(m_json_value),
+-    m_webrtc(m_json_value),
+-    m_tls(m_json_value),
+-    m_device_memory(m_json_value),
+-    m_hardware_concurrency(m_json_value),
+-    m_battery(m_json_value),
+-    m_network_information(m_json_value),
+-    m_window_screen(m_json_value),
+-    m_touch(m_json_value),
+-    m_webaudio(m_json_value),
+-    m_navigator(m_json_value),
+-    m_do_not_track(m_json_value),
+-    m_user_agent(m_json_value),
+-    m_language(m_json_value),
+-    m_client_rects(m_json_value)
++  : m_command_line_impl(std::make_unique<CommandLineHolder>()),
++    m_enabled(m_command_line_impl->m_command_line->HasSwitch(kFingerprint)),
++    m_json_str(m_enabled ? m_command_line_impl->m_command_line->GetSwitchValueASCII(kFingerprint) : std::string{}),
++    m_canvas(GetParsedJson(m_enabled, m_json_str)),
++    m_webgl(GetParsedJson(m_enabled, m_json_str)),
++    m_fonts(GetParsedJson(m_enabled, m_json_str)),
++    m_webgpu(GetParsedJson(m_enabled, m_json_str)),
++    m_webrtc(GetParsedJson(m_enabled, m_json_str)),
++    m_tls(GetParsedJson(m_enabled, m_json_str)),
++    m_device_memory(GetParsedJson(m_enabled, m_json_str)),
++    m_hardware_concurrency(GetParsedJson(m_enabled, m_json_str)),
++    m_battery(GetParsedJson(m_enabled, m_json_str)),
++    m_network_information(GetParsedJson(m_enabled, m_json_str)),
++    m_window_screen(GetParsedJson(m_enabled, m_json_str)),
++    m_touch(GetParsedJson(m_enabled, m_json_str)),
++    m_webaudio(GetParsedJson(m_enabled, m_json_str)),
++    m_navigator(GetParsedJson(m_enabled, m_json_str)),
++    m_do_not_track(GetParsedJson(m_enabled, m_json_str)),
++    m_user_agent(GetParsedJson(m_enabled, m_json_str)),
++    m_language(GetParsedJson(m_enabled, m_json_str)),
++    m_client_rects(GetParsedJson(m_enabled, m_json_str)),
++    m_cdp_detection(GetParsedJson(m_enabled, m_json_str))
+ {
+-
+-  if (!m_command_line.get()->HasSwitch("type")) {
++  if (!m_command_line_impl->m_command_line->HasSwitch("type")) {
+     AppendUserAgentCommandLine();
+     AppendLanguageCommandLine();
+   }
+@@ -59,15 +83,17 @@ bool Controller::AppendCommandLine(base::CommandLine* command_line) {
+ 
+ void Controller::AppendUserAgentCommandLine() {
+   if (m_user_agent.Enabled() && m_user_agent.UseCommandLine()) {
+-    const_cast<base::CommandLine*>(m_command_line.get())
++    auto& command_line = m_command_line_impl->m_command_line;
++    const_cast<base::CommandLine*>(command_line.get())
+       ->AppendSwitchASCII(m_user_agent.GetCommandLineKey(), m_user_agent.GetUserAgent());
+   }
+ }
+ 
+ void Controller::AppendLanguageCommandLine() {
+   if (m_language.Enabled()) {
++    auto& command_line = m_command_line_impl->m_command_line;
+     if (!m_language.GetLanguage().empty()) {
+-      const_cast<base::CommandLine*>(m_command_line.get())
++      const_cast<base::CommandLine*>(command_line.get())
+         ->AppendSwitchASCII(m_language.GetCommandLineKeyLang(), m_language.GetLanguage());
+     }
+     if (!m_language.GetLanguages().empty()) {
+@@ -76,7 +102,7 @@ void Controller::AppendLanguageCommandLine() {
+         languages += language + ",";
+       }
+       languages.pop_back();
+-      const_cast<base::CommandLine*>(m_command_line.get())
++      const_cast<base::CommandLine*>(command_line.get())
+         ->AppendSwitchASCII(m_language.GetCommandLineKeyAcceptLang(), languages);
+     }
+   }
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index 508bd8eb07f47..3afc930e2bf30 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -2,10 +2,9 @@
+ 
+ #include <iostream>
+ #include <string>
++#include <memory>
+ 
+ #include "base/base_export.h"
+-#include "base/command_line.h"
+-#include "base/memory/raw_ptr.h"
+ 
+ #include "./utils/random.h"
+ #include "./canvas/canvas.h"
+@@ -26,9 +25,17 @@
+ #include "./user_agent/user_agent.h"
+ #include "./language/language.h"
+ #include "./client_rects/client_rects.h"
++#include "./cdp_detection/cdp_detection.h"
++
++namespace base {
++class CommandLine;
++}  // namespace base
+ 
+ namespace fingerprint {
+ 
++// 不透明的前置声明
++class CommandLineHolder;
++
+ class Controller {
+ public:
+   Controller(const Controller&) = delete;
+@@ -57,6 +64,7 @@ public:
+   UserAgent& GetUserAgent() { return m_user_agent; }
+   Language& GetLanguage() { return m_language; }
+   ClientRects& GetClientRects() { return m_client_rects; }
++  CdpDetection& GetCdpDetection() { return m_cdp_detection; }
+ 
+ private:
+   Controller();
+@@ -64,10 +72,9 @@ private:
+   void AppendUserAgentCommandLine();
+   void AppendLanguageCommandLine();
+ 
+-  const raw_ptr<const base::CommandLine> m_command_line;
++  std::unique_ptr<CommandLineHolder> m_command_line_impl;
+   bool m_enabled;
+   std::string m_json_str;
+-  absl::optional<base::Value> m_json_value;
+ 
+   Canvas m_canvas;
+   WebGL m_webgl;
+@@ -87,6 +94,7 @@ private:
+   UserAgent m_user_agent;
+   Language m_language;
+   ClientRects m_client_rects;
++  CdpDetection m_cdp_detection;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/device_memory/device_memory.h b/a_tools/fingerprint/device_memory/device_memory.h
+index 67727a11b8c84..5ee43c50614d3 100644
+--- a/a_tools/fingerprint/device_memory/device_memory.h
++++ b/a_tools/fingerprint/device_memory/device_memory.h
+@@ -1,7 +1,6 @@
+ # pragma once
+ 
+ #include "../base_fingerprint.h"
+-#include "base/values.h"
+ #include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+diff --git a/a_tools/fingerprint/do_not_track/do_not_track.h b/a_tools/fingerprint/do_not_track/do_not_track.h
+index 480d01ee25799..eb81abb8dcdfb 100644
+--- a/a_tools/fingerprint/do_not_track/do_not_track.h
++++ b/a_tools/fingerprint/do_not_track/do_not_track.h
+@@ -1,7 +1,6 @@
+ # pragma once
+ 
+ #include "../base_fingerprint.h"
+-#include "base/values.h"
+ #include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+diff --git a/a_tools/fingerprint/fonts/fonts.h b/a_tools/fingerprint/fonts/fonts.h
+index 8f5a0c01a481e..e54104155c9e4 100644
+--- a/a_tools/fingerprint/fonts/fonts.h
++++ b/a_tools/fingerprint/fonts/fonts.h
+@@ -1,7 +1,6 @@
+ # pragma once
+ 
+ #include "../base_fingerprint.h"
+-#include "base/values.h"
+ #include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+diff --git a/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.h b/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.h
+index d13b679f2cabf..815bc51f913bd 100644
+--- a/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.h
++++ b/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.h
+@@ -1,7 +1,6 @@
+ # pragma once
+ 
+ #include "../base_fingerprint.h"
+-#include "base/values.h"
+ #include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+diff --git a/a_tools/fingerprint/language/language.h b/a_tools/fingerprint/language/language.h
+index e9ef0003c07a3..00cb11d2ac174 100644
+--- a/a_tools/fingerprint/language/language.h
++++ b/a_tools/fingerprint/language/language.h
+@@ -1,7 +1,6 @@
+ # pragma once
+ 
+ #include "../base_fingerprint.h"
+-#include "base/values.h"
+ #include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+diff --git a/a_tools/fingerprint/navigator/navigator.h b/a_tools/fingerprint/navigator/navigator.h
+index 63fda3f178e59..28337c899dd46 100644
+--- a/a_tools/fingerprint/navigator/navigator.h
++++ b/a_tools/fingerprint/navigator/navigator.h
+@@ -1,7 +1,6 @@
+ # pragma once
+ 
+ #include "../base_fingerprint.h"
+-#include "base/values.h"
+ #include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+diff --git a/a_tools/fingerprint/network_information/network_information.h b/a_tools/fingerprint/network_information/network_information.h
+index 95ad3ff3c0667..aa342aae8c840 100644
+--- a/a_tools/fingerprint/network_information/network_information.h
++++ b/a_tools/fingerprint/network_information/network_information.h
+@@ -1,7 +1,6 @@
+ # pragma once
+ 
+ #include "../base_fingerprint.h"
+-#include "base/values.h"
+ #include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ #include "third_party/blink/public/platform/web_effective_connection_type.h"
+diff --git a/a_tools/fingerprint/tls/tls.h b/a_tools/fingerprint/tls/tls.h
+index 2ca67cbfe760d..b6adcca8301cc 100644
+--- a/a_tools/fingerprint/tls/tls.h
++++ b/a_tools/fingerprint/tls/tls.h
+@@ -1,7 +1,6 @@
+ # pragma once
+ 
+ #include "../base_fingerprint.h"
+-#include "base/values.h"
+ #include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+diff --git a/a_tools/fingerprint/touch/touch.h b/a_tools/fingerprint/touch/touch.h
+index b82bc1525c346..ad0670afdc178 100644
+--- a/a_tools/fingerprint/touch/touch.h
++++ b/a_tools/fingerprint/touch/touch.h
+@@ -1,7 +1,6 @@
+ # pragma once
+ 
+ #include "../base_fingerprint.h"
+-#include "base/values.h"
+ #include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+diff --git a/a_tools/fingerprint/user_agent/user_agent.h b/a_tools/fingerprint/user_agent/user_agent.h
+index 5491814ead5fe..c416f49a7e71f 100644
+--- a/a_tools/fingerprint/user_agent/user_agent.h
++++ b/a_tools/fingerprint/user_agent/user_agent.h
+@@ -1,7 +1,6 @@
+ # pragma once
+ 
+ #include "../base_fingerprint.h"
+-#include "base/values.h"
+ #include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+diff --git a/a_tools/fingerprint/webaudio/webaudio.h b/a_tools/fingerprint/webaudio/webaudio.h
+index 532072504a0e3..461d53fe4486c 100644
+--- a/a_tools/fingerprint/webaudio/webaudio.h
++++ b/a_tools/fingerprint/webaudio/webaudio.h
+@@ -1,7 +1,6 @@
+ # pragma once
+ 
+ #include "../base_fingerprint.h"
+-#include "base/values.h"
+ #include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+diff --git a/a_tools/fingerprint/webgl/webgl.h b/a_tools/fingerprint/webgl/webgl.h
+index e8442f3804f4f..c4894911524ef 100644
+--- a/a_tools/fingerprint/webgl/webgl.h
++++ b/a_tools/fingerprint/webgl/webgl.h
+@@ -5,7 +5,6 @@
+ #include <unordered_set>
+ 
+ #include "../base_fingerprint.h"
+-#include "base/values.h"
+ #include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+diff --git a/a_tools/fingerprint/webgpu/webgpu.h b/a_tools/fingerprint/webgpu/webgpu.h
+index a9c5c02bba7ea..7be0afb7ef906 100644
+--- a/a_tools/fingerprint/webgpu/webgpu.h
++++ b/a_tools/fingerprint/webgpu/webgpu.h
+@@ -1,7 +1,6 @@
+ # pragma once
+ 
+ #include "../base_fingerprint.h"
+-#include "base/values.h"
+ #include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+diff --git a/a_tools/fingerprint/webrtc/webrtc.h b/a_tools/fingerprint/webrtc/webrtc.h
+index 63d0f15e57e38..1b5184eaae9b8 100644
+--- a/a_tools/fingerprint/webrtc/webrtc.h
++++ b/a_tools/fingerprint/webrtc/webrtc.h
+@@ -2,7 +2,6 @@
+ 
+ #include <cstdint>
+ #include "../base_fingerprint.h"
+-#include "base/values.h"
+ #include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+diff --git a/a_tools/fingerprint/window_screen/window_screen.h b/a_tools/fingerprint/window_screen/window_screen.h
+index 19166628797e9..fcedeb427f081 100644
+--- a/a_tools/fingerprint/window_screen/window_screen.h
++++ b/a_tools/fingerprint/window_screen/window_screen.h
+@@ -1,7 +1,6 @@
+ # pragma once
+ 
+ #include "../base_fingerprint.h"
+-#include "base/values.h"
+ #include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+diff --git a/config.json b/config.json
+index f91cf726654bf..3acbd41dfa163 100644
+--- a/config.json
++++ b/config.json
+@@ -12,7 +12,7 @@
+     }
+   },
+   "webgl": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "params": {
+         "unmasked_vendor_webgl": "Google Inc. (NVIDIA)",
+@@ -211,7 +211,7 @@
+     }
+   },
+   "navigator": {
+-    "enabled": false,
++    "enabled": true,
+     "params": {
+       "cookie_enabled": false,
+       "webdriver": false,
+@@ -249,7 +249,7 @@
+       "metadata": {
+         "//brand_version_list": "'Chromium';v='139.0.7258.138', 'Not;A=Brand';v='99.0.0.0'",
+         "//MajorVersionList": "'Chromium';v='139', 'Not;A=Brand';v='99'",
+-        "full_version": "139.0.0.0",
++        "//full_version": "139.0.0.0",
+         "platform": "Windows",
+         "platform_version": "19.0.0",
+         "architecture": "x86",
+@@ -275,5 +275,17 @@
+       "noise_max": 99,
+       "noise_level": 0.00001
+     }
++  },
++  "cdp_detection": {
++    "enabled": true,
++    "params": {
++      "console_api": {
++        "debug_disabled": true,
++        "error_disabled": true,
++        "info_disabled": true,
++        "log_disabled": true,
++        "warn_disabled": true
++      }
++    }
+   }
+ }
+-- 
+2.43.0
+

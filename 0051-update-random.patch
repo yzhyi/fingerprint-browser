@@ -1,0 +1,231 @@
+From 8f27b1ca6124ce5ec37948b12ad8e9718c655b47 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Wed, 29 Oct 2025 16:49:38 +0800
+Subject: [PATCH 51/68] update random
+
+---
+ a_tools/fingerprint/fonts/fonts.cc            | 17 ++++++-
+ a_tools/fingerprint/fonts/fonts.h             |  3 ++
+ a_tools/fingerprint/utils/random.cc           | 44 +++++++++++++++++++
+ a_tools/fingerprint/utils/random.h            | 39 ++++++++++++++--
+ config.json                                   |  8 ++--
+ .../blink/renderer/core/css/css_font_face.cc  |  2 +-
+ 6 files changed, 104 insertions(+), 9 deletions(-)
+
+diff --git a/a_tools/fingerprint/fonts/fonts.cc b/a_tools/fingerprint/fonts/fonts.cc
+index c2c64b951fa0c..8092948366ad0 100644
+--- a/a_tools/fingerprint/fonts/fonts.cc
++++ b/a_tools/fingerprint/fonts/fonts.cc
+@@ -1,4 +1,5 @@
+ #include "./fonts.h"
++#include <cstdio>
+ #include "../utils/random.h"
+ #include "../utils/parse_json.h"
+ 
+@@ -15,8 +16,10 @@ bool Fonts::ParseJson(const absl::optional<base::Value> &json_value) {
+   if (const base::DictValue* dict = FindDict(json_value.value(), "fonts"); dict) {
+     if (FindBool(dict, "enabled", m_enabled); m_enabled) {
+       if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        FindDouble(params_dict, "seed", m_seed);
+         FindDouble(params_dict, "noise_min", m_noise_min);
+         FindDouble(params_dict, "noise_max", m_noise_max);
++        FindDouble(params_dict, "disable_css_font_face_probability", m_disable_css_font_face_probability);
+       }
+     }
+     return true;
+@@ -24,10 +27,20 @@ bool Fonts::ParseJson(const absl::optional<base::Value> &json_value) {
+   return false;
+ }
+ 
++bool Fonts::DisableCSSFontFace() { // for creepjs
++  if (m_enabled) {
++    // TODO: Yzhyi 只会初始化一次，刷新网页会产生不同于上一次的随机
++    static Random rand(0, 1, m_seed);
++    return rand.NextDouble() < m_disable_css_font_face_probability;
++  }
++  return false;
++}
++
+ int Fonts::GetNoise() {
+   if (m_enabled) {
+-    return RandomInt(static_cast<int>(m_noise_min),
+-                      static_cast<int>(m_noise_max));
++    // TODO: Yzhyi 同上
++    static Random rand(m_noise_min, m_noise_max, m_seed);
++    return rand.NextInt();
+   }
+   return 0;
+ }
+diff --git a/a_tools/fingerprint/fonts/fonts.h b/a_tools/fingerprint/fonts/fonts.h
+index c7ea5b849fe7e..a8467e733497a 100644
+--- a/a_tools/fingerprint/fonts/fonts.h
++++ b/a_tools/fingerprint/fonts/fonts.h
+@@ -22,10 +22,13 @@ private:
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+   BASE_EXPORT int GetNoise();
++  BASE_EXPORT bool DisableCSSFontFace();
+ 
+ private:
++  double m_seed{0};
+   double m_noise_min{0};
+   double m_noise_max{0};
++  double m_disable_css_font_face_probability{0};
+ };
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/utils/random.cc b/a_tools/fingerprint/utils/random.cc
+index 3b433bdf29198..5075e8f49f200 100644
+--- a/a_tools/fingerprint/utils/random.cc
++++ b/a_tools/fingerprint/utils/random.cc
+@@ -56,4 +56,48 @@ double RandomDouble(double min, double max, uint64_t seed) {
+   return distribution(g_random_engine);
+ }
+ 
++// Random 类的实现
++// 浮点数构造函数
++Random::Random(double min, double max, uint64_t seed)
++    : min_(min), max_(max), seed_(seed) {
++  // 参数验证
++  if (min_ > max_) {
++    LOG(ERROR) << "Invalid range: min (" << min_ << ") is greater than max (" << max_ << ")";
++  }
++
++  // 初始化独立的随机数引擎
++  if (seed_ != 0) {
++    engine_.seed(seed_);
++  } else {
++    uint64_t time_seed = std::chrono::steady_clock::now().time_since_epoch().count();
++    engine_.seed(time_seed);
++  }
++}
++
++// 生成随机整数
++int Random::NextInt() {
++  // 参数验证
++  if (min_ > max_) {
++    LOG(ERROR) << "Invalid range: min (" << min_ << ") is greater than max (" << max_ << ")";
++    return static_cast<int>(min_);
++  }
++
++  // 使用独立的引擎生成随机整数
++  std::uniform_int_distribution<int> distribution(static_cast<int>(min_), static_cast<int>(max_));
++  return distribution(engine_);
++}
++
++// 生成随机浮点数
++double Random::NextDouble() {
++  // 参数验证
++  if (min_ > max_) {
++    LOG(ERROR) << "Invalid range: min (" << min_ << ") is greater than max (" << max_ << ")";
++    return min_;
++  }
++
++  // 使用独立的引擎生成随机浮点数
++  std::uniform_real_distribution<double> distribution(min_, max_);
++  return distribution(engine_);
++}
++
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/utils/random.h b/a_tools/fingerprint/utils/random.h
+index a6744a244fae8..248cbaf8e084b 100644
+--- a/a_tools/fingerprint/utils/random.h
++++ b/a_tools/fingerprint/utils/random.h
+@@ -1,17 +1,50 @@
+ #pragma once
+ 
+ #include <cstdint>
++#include <random>
+ #include "base/base_export.h"
+ 
+-// TODO: 每个指纹固定一个 seed
+ namespace fingerprint {
+ 
+ // 生成指定范围内的随机整数
+ // 如果提供了 seed，则使用该种子；否则使用当前时间作为种子
+-BASE_EXPORT int RandomInt(int min, int max, uint64_t seed = 0);
++int RandomInt(int min, int max, uint64_t seed = 0);
+ 
+ // 生成指定范围内的随机浮点数
+ // 如果提供了 seed，则使用该种子；否则使用当前时间作为种子
+-BASE_EXPORT double RandomDouble(double min, double max, uint64_t seed = 0);
++double RandomDouble(double min, double max, uint64_t seed = 0);
++
++// 随机数生成器类
++class Random {
++public:
++  // 构造函数：指定浮点数范围和种子
++  Random(double min, double max, uint64_t seed = 0);
++
++  // 生成下一个随机整数
++  int NextInt();
++
++  // 生成下一个随机浮点数
++  double NextDouble();
++
++  // 获取当前的最小值
++  double GetMin() const { return min_; }
++
++  // 获取当前的最大值
++  double GetMax() const { return max_; }
++
++  // 获取当前的种子
++  uint64_t GetSeed() const { return seed_; }
++
++ private:
++  // 范围
++  double min_;
++  double max_;
++
++  // 种子
++  uint64_t seed_;
++
++  // 独立的随机数引擎
++  std::mt19937_64 engine_;
++};
+ 
+ } // namespace fingerprint
+diff --git a/config.json b/config.json
+index 84458d49f1e6b..d9b1e3c8e0bbc 100644
+--- a/config.json
++++ b/config.json
+@@ -35,10 +35,12 @@
+     }
+   },
+   "fonts": {
+-    "enabled": false,
++    "enabled": true,
+     "params": {
++      "seed": 1,
+       "noise_min": 0,
+-      "noise_max": 1
++      "noise_max": 1,
++      "disable_css_font_face_probability": 0.2
+     }
+   },
+   "webgpu": {
+@@ -152,7 +154,7 @@
+     }
+   },
+   "webaudio": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "sample_rate": {
+         "seed": 1,
+diff --git a/third_party/blink/renderer/core/css/css_font_face.cc b/third_party/blink/renderer/core/css/css_font_face.cc
+index e40a2fc7374e4..bb9fd8cd30656 100644
+--- a/third_party/blink/renderer/core/css/css_font_face.cc
++++ b/third_party/blink/renderer/core/css/css_font_face.cc
+@@ -254,7 +254,7 @@ void CSSFontFace::Load(const FontDescription& font_description) {
+         if (source->IsLocalFontAvailable(font_description)) {
+ 
+           #ifdef ENABLE_FINGERPRINT
+-          if (fingerprint::Controller::GetInstance().GetFonts().Enabled() &&  fingerprint::RandomInt(0, 9) < 2) {
++          if (fingerprint::Controller::GetInstance().GetFonts().DisableCSSFontFace()) {
+             SetLoadStatus(FontFace::kError); // TODO: Yzhyi set this can pass creepjs
+             return;
+           }
+-- 
+2.43.0
+

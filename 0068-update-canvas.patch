@@ -1,0 +1,375 @@
+From 19e1791e57e4d387278832477cc694fec6cfd869 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Mon, 9 Mar 2026 16:05:58 +0800
+Subject: [PATCH 68/68] update canvas
+
+---
+ a_tools/BUILD.gn                              |  3 +-
+ a_tools/README.md                             | 18 +++--
+ a_tools/fingerprint/canvas/canvas.cc          | 70 ++++++++++++++++++-
+ a_tools/fingerprint/canvas/canvas.h           | 30 +++++++-
+ a_tools/fingerprint/webaudio/webaudio.cc      |  7 +-
+ a_tools/fingerprint/webaudio/webaudio.h       |  1 +
+ config.json                                   | 23 +++++-
+ skia/BUILD.gn                                 |  4 ++
+ .../canvas2d/base_rendering_context_2d.cc     | 33 +++++++++
+ 9 files changed, 174 insertions(+), 15 deletions(-)
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index 7b30c2bfb5fdd..ae34641cf403d 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -10,6 +10,7 @@ config("a_tools_config") {
+ source_set("a_tools") {
+   visibility = [ "*" ]
+   all_dependent_configs = [ ":a_tools_config" ]
++  # public_configs = [ ":a_tools_config" ]
+   sources = [
+     "fingerprint/controller.h",
+     "fingerprint/controller.cc",
+@@ -62,7 +63,7 @@ source_set("a_tools") {
+     "fingerprint/port_scan_protection/port_scan_protection.h",
+     "fingerprint/port_scan_protection/port_scan_protection.cc",
+   ]
+-  deps = [
++  public_deps = [
+     "//base/allocator/partition_allocator:raw_ptr",
+     "//third_party/abseil-cpp:absl",
+   ]
+diff --git a/a_tools/README.md b/a_tools/README.md
+index 36bbacea482a2..976894af26a92 100644
+--- a/a_tools/README.md
++++ b/a_tools/README.md
+@@ -24,11 +24,23 @@ google_api_key="AIzaSyDwr302FpOSkGRpLlUpPThNTDPbXcIn_FM"
+ chrome_pgo_phase = 0
+ ```
+ 
++# 需要手动修改
++```
++/home/yuzhengyi02/git/chromium/src/skia/BUILD.gn
++```
++
+ # 开多个浏览器实例
+ ```bash
+ --user-data-dir=/tmp/chrome_temp_$(date +%s)
+ ```
+ 
++# 启动 CDP
++```
++--remote-debugging-port={prot}
++http://0.0.0.0:9222/json/version: 查看 webSocketDebuggerUrl
++http://0.0.0.0:9222/json
++```
++
+ # TODO
+ ```c++
+ base/system/sys_info_posix.cc:SysInfo::OperatingSystemArchitecture() -> header 要修改这个(最底层)
+@@ -60,7 +72,5 @@ base/system/sys_info_posix.cc:SysInfo::OperatingSystemArchitecture() -> header 
+ * --no-first-run: 跳过首次运行向导
+ * --disable-webgl
+ 
+-# GIT 未记录
+-## CDP
+-v8/src/inspector/BUILD.gn
+-v8/src/inspector/v8-console.cc
++# Font 指纹
++* TODO: 目前的随机删除字体，以及随机改变字体的宽高都会在刷新之后重新随机，也就是说每次刷新之后都不一样
+diff --git a/a_tools/fingerprint/canvas/canvas.cc b/a_tools/fingerprint/canvas/canvas.cc
+index 35c0699d883ea..b3c0a3599040b 100644
+--- a/a_tools/fingerprint/canvas/canvas.cc
++++ b/a_tools/fingerprint/canvas/canvas.cc
+@@ -1,4 +1,5 @@
+ #include "./canvas.h"
++#include "../utils/random.h"
+ #include "../utils/parse_json.h"
+ 
+ namespace fingerprint {
+@@ -20,7 +21,36 @@ bool Canvas::ParseJson(const absl::optional<base::Value> &json_value) {
+         FindDouble(params_dict, "rect_y", m_rect_y);
+         FindDouble(params_dict, "rect_width", m_rect_width);
+         FindDouble(params_dict, "rect_height", m_rect_height);
+-        FindBool(params_dict, "modify_data_url", m_modify_data_url_enable);
++        // FindBool(params_dict, "modify_font_color", m_modify_data_url_enable);
++        FindDouble(params_dict, "seed", m_seed);
++        if (const base::DictValue* modify_data_url_dict = FindDict(params_dict, "modify_data_url"); modify_data_url_dict) {
++          FindBool(modify_data_url_dict, "enabled", m_modify_data_url.m_enabled);
++          FindDouble(modify_data_url_dict, "noise_min", m_modify_data_url.m_noise_min);
++          FindDouble(modify_data_url_dict, "noise_max", m_modify_data_url.m_noise_max);
++          m_modify_data_url.m_extra_space_cnt = RandomInt(m_modify_data_url.m_noise_min,
++                                                          m_modify_data_url.m_noise_max,
++                                                          static_cast<uint64_t>(m_seed));
++        }
++        if (const base::DictValue* modify_font_color_dict = FindDict(params_dict, "modify_font_color"); modify_font_color_dict) {
++          FindBool(modify_font_color_dict, "enabled", m_modify_font_color.m_enabled);
++          FindDouble(modify_font_color_dict, "noise_min", m_modify_font_color.m_noise_min);
++          FindDouble(modify_font_color_dict, "noise_max", m_modify_font_color.m_noise_max);
++          FindDouble(modify_font_color_dict, "noise_level", m_modify_font_color.m_noise_level);
++          static Random rand(m_modify_font_color.m_noise_min, m_modify_font_color.m_noise_max, m_seed);
++          m_modify_font_color.m_red_noise = rand.NextDouble() * m_modify_font_color.m_noise_level;
++          m_modify_font_color.m_green_noise = rand.NextDouble() * m_modify_font_color.m_noise_level;
++          m_modify_font_color.m_blue_noise = rand.NextDouble() * m_modify_font_color.m_noise_level;
++          m_modify_font_color.m_alpha_noise = rand.NextDouble() * m_modify_font_color.m_noise_level;
++        }
++        if (const base::DictValue* modify_conic_weight_dict = FindDict(params_dict, "modify_conic_weight"); modify_conic_weight_dict) {
++          FindBool(modify_conic_weight_dict, "enabled", m_modify_conic_weight.m_enabled);
++          FindDouble(modify_conic_weight_dict, "noise_min", m_modify_conic_weight.m_noise_min);
++          FindDouble(modify_conic_weight_dict, "noise_max", m_modify_conic_weight.m_noise_max);
++          FindDouble(modify_conic_weight_dict, "noise_level", m_modify_conic_weight.m_noise_level);
++          m_modify_conic_weight.m_weight_noise = RandomDouble(m_modify_conic_weight.m_noise_min * m_modify_conic_weight.m_noise_level,
++                                                          m_modify_conic_weight.m_noise_max * m_modify_conic_weight.m_noise_level,
++                                                          static_cast<uint64_t>(m_seed));
++        }
+       }
+     }
+     return true;
+@@ -65,10 +95,44 @@ void Canvas::ModifyRectHeight(double &value) {
+ }
+ 
+ std::string Canvas::ModifyDataURL(std::string data_url) {
+-  if (m_enabled && m_modify_data_url_enable) {
+-    data_url = data_url + " ";
++  if (m_enabled && m_modify_data_url.m_enabled) {
++    data_url = data_url + std::string(m_modify_data_url.m_extra_space_cnt, ' ');
+   }
+   return data_url;
+ }
+ 
++double Canvas::GetFontRedNoise() {
++  if (m_enabled && m_modify_font_color.m_enabled) {
++    return m_modify_font_color.m_red_noise;
++  }
++  return 0;
++}
++
++double Canvas::GetFontGreenNoise() {
++  if (m_enabled && m_modify_font_color.m_enabled) {
++    return m_modify_font_color.m_green_noise;
++  }
++  return 0;
++}
++
++double Canvas::GetFontBlueNoise() {
++  if (m_enabled && m_modify_font_color.m_enabled) {
++    return m_modify_font_color.m_blue_noise;
++  }
++  return 0;
++}
++
++double Canvas::GetFontAlphaNoise() {
++  if (m_enabled && m_modify_font_color.m_enabled) {
++    return m_modify_font_color.m_alpha_noise;
++  }
++  return 0;
++}
++
++void Canvas::ModifyConicWeight(float &w) {
++  if (m_enabled && m_modify_conic_weight.m_enabled) {
++    w += static_cast<float>(m_modify_conic_weight.m_weight_noise);
++  }
++}
++
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/canvas/canvas.h b/a_tools/fingerprint/canvas/canvas.h
+index e9d0e945885b1..f2353c6f658c1 100644
+--- a/a_tools/fingerprint/canvas/canvas.h
++++ b/a_tools/fingerprint/canvas/canvas.h
+@@ -16,6 +16,11 @@ public:
+   BASE_EXPORT void ModifyRectWidth(double &value);
+   BASE_EXPORT void ModifyRectHeight(double &value);
+   BASE_EXPORT std::string ModifyDataURL(std::string data_url);
++  BASE_EXPORT double GetFontRedNoise();
++  BASE_EXPORT double GetFontGreenNoise();
++  BASE_EXPORT double GetFontBlueNoise();
++  BASE_EXPORT double GetFontAlphaNoise();
++  BASE_EXPORT void ModifyConicWeight(float &w);
+ 
+ private:
+   double m_width{0};
+@@ -24,7 +29,30 @@ private:
+   double m_rect_y{0};
+   double m_rect_width{0};
+   double m_rect_height{0};
+-  bool m_modify_data_url_enable{false};
++  double m_seed{0};
++  struct ModifyDataUrl {
++    bool m_enabled{false};
++    double m_noise_min{0};
++    double m_noise_max{0};
++    int m_extra_space_cnt{0};
++  } m_modify_data_url;
++  struct ModifyFontColor {
++    bool m_enabled{false};
++    double m_noise_min{0};
++    double m_noise_max{0};
++    double m_noise_level{0};
++    double m_red_noise{0};
++    double m_green_noise{0};
++    double m_blue_noise{0};
++    double m_alpha_noise{0};
++  } m_modify_font_color;
++  struct ModifyConicWeight {
++    bool m_enabled{false};
++    double m_noise_min{0};
++    double m_noise_max{0};
++    double m_noise_level{0};
++    double m_weight_noise{0};
++  } m_modify_conic_weight;
+ 
+ FINGERPRINT_CLASS_END();
+ 
+diff --git a/a_tools/fingerprint/webaudio/webaudio.cc b/a_tools/fingerprint/webaudio/webaudio.cc
+index f252a39f28714..641d4b43bd2ec 100644
+--- a/a_tools/fingerprint/webaudio/webaudio.cc
++++ b/a_tools/fingerprint/webaudio/webaudio.cc
+@@ -19,6 +19,9 @@ bool WebAudio::ParseJson(const absl::optional<base::Value> &json_value) {
+           FindDouble(sample_rate_dict, "seed", m_sample_rate.m_seed);
+           FindDouble(sample_rate_dict, "noise_min", m_sample_rate.m_noise_min);
+           FindDouble(sample_rate_dict, "noise_max", m_sample_rate.m_noise_max);
++          m_sample_rate_noise += RandomDouble(m_sample_rate.m_noise_min,
++                            m_sample_rate.m_noise_max,
++                          static_cast<uint64_t>(m_sample_rate.m_seed));
+         }
+       }
+     }
+@@ -29,9 +32,7 @@ bool WebAudio::ParseJson(const absl::optional<base::Value> &json_value) {
+ 
+ void WebAudio::ModifySampleRate(float &sample_rate) {
+   if (m_enabled) {
+-    sample_rate += RandomDouble(m_sample_rate.m_noise_min,
+-                                m_sample_rate.m_noise_max,
+-                               static_cast<uint64_t>(m_sample_rate.m_seed));
++    sample_rate += m_sample_rate_noise;
+   }
+ }
+ 
+diff --git a/a_tools/fingerprint/webaudio/webaudio.h b/a_tools/fingerprint/webaudio/webaudio.h
+index 461d53fe4486c..c611c1db7fbb8 100644
+--- a/a_tools/fingerprint/webaudio/webaudio.h
++++ b/a_tools/fingerprint/webaudio/webaudio.h
+@@ -17,6 +17,7 @@ private:
+     double m_noise_min{0};
+     double m_noise_max{0};
+   } m_sample_rate;
++  double m_sample_rate_noise{0};  
+ 
+ FINGERPRINT_CLASS_END();
+ 
+diff --git a/config.json b/config.json
+index bf9e172c00f6c..4246d2c9bc69a 100644
+--- a/config.json
++++ b/config.json
+@@ -1,6 +1,6 @@
+ {
+   "canvas": {
+-    "enabled": false,
++    "enabled": true,
+     "params": {
+       "width": 0,
+       "height": 0,
+@@ -8,7 +8,24 @@
+       "rect_y": 0,
+       "rect_width": 0,
+       "rect_height": 0,
+-      "modify_data_url": true
++      "seed": 1,
++      "modify_data_url": {
++        "enabled": false,
++        "noise_min": 0,
++        "noise_max": 100
++      },
++      "modify_font_color": {
++        "enabled": false,
++        "noise_min": 0,
++        "noise_max": 100,
++        "noise_level": 0.01
++      },
++      "modify_conic_weight": {
++        "enabled": false,
++        "noise_min": 0,
++        "noise_max": 100000,
++        "noise_level": 0.00001
++      }
+     }
+   },
+   "webgl": {
+@@ -211,7 +228,7 @@
+     }
+   },
+   "navigator": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "cookie_enabled": false,
+       "webdriver": false,
+diff --git a/skia/BUILD.gn b/skia/BUILD.gn
+index 7ce234debce14..b687b0aab69da 100644
+--- a/skia/BUILD.gn
++++ b/skia/BUILD.gn
+@@ -724,6 +724,10 @@ skia_source_set("skia_core_and_effects") {
+   if (skia_support_gpu) {
+     deps = [ "//gpu/config:workaround_list" ]
+   }
++
++  # ENABLE_FINGERPRINT
++  deps += [ "//a_tools:a_tools" ]
++
+   if (skia_use_dawn) {
+     # Note: This is needed as files in this target include GrDawnTypes.h, which
+     # includes Dawn headers that are generated by the below target. Normally it
+diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+index e8281a4f83ca8..9beb4f19ef633 100644
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #include "third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.h"
+ 
+ #include <cmath>
+@@ -1200,9 +1204,38 @@ void BaseRenderingContext2D::DrawTextInternal(
+           TextRunPaintInfo text_run_paint_info(text_run);
+           text_run_paint_info.from = run_start;
+           text_run_paint_info.to = run_end;
++
++          #ifdef ENABLE_FINGERPRINT
++          cc::PaintFlags modified_flags(*flags);
++          // ========== 为所有字体 (包括 Emoji) 添加颜色滤镜 ==========
++          float color_matrix[20] = {
++          1 + static_cast<float>(fingerprint::Controller::GetInstance().GetCanvas().GetFontRedNoise()), 0, 0, 0, 0,      // R
++            0, 1 + static_cast<float>(fingerprint::Controller::GetInstance().GetCanvas().GetFontGreenNoise()), 0, 0, 0,      // G
++            0, 0, 1 + static_cast<float>(fingerprint::Controller::GetInstance().GetCanvas().GetFontBlueNoise()), 0, 0,      // B
++            0, 0, 0, 1 + static_cast<float>(fingerprint::Controller::GetInstance().GetCanvas().GetFontAlphaNoise()), 0       // A
++          };
++          sk_sp<cc::ColorFilter> color_filter = cc::ColorFilter::MakeMatrix(color_matrix);
++          modified_flags.setColorFilter(color_filter);
++
++          // // 获取当前颜色
++          // SkColor4f color = modified_flags.getColor4f();
++          // // 示例 ：轻微提亮
++          // color.fR += 0.05f;
++          // // color.fR = std::min(1.0f, color.fR + 0.1f);
++          // // color.fG = std::min(1.0f, color.fG + 0.1f);
++          // // color.fB = std::min(1.0f, color.fB + 0.1f);
++          // // 应用修改后的颜色
++          // modified_flags.setColor(color);
++
++          font->DeprecatedDrawBidiText(c, text_run_paint_info, location,
++                                       Font::kUseFallbackIfFontNotReady, modified_flags,
++                                       draw_type);
++          #else
+           font->DeprecatedDrawBidiText(c, text_run_paint_info, location,
+                                        Font::kUseFallbackIfFontNotReady, *flags,
+                                        draw_type);
++          #endif // ENABLE_FINGERPRINT
++
+         }
+       },
+       [](const SkIRect& rect)  // overdraw test lambda
+-- 
+2.43.0
+

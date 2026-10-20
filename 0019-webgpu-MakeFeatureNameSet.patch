@@ -1,0 +1,125 @@
+From ba7981a81b8f47cbd3a98f4e863055d2e90947d8 Mon Sep 17 00:00:00 2001
+From: yuzhengyi02 <yuzhengyi02@meituan.com>
+Date: Mon, 15 Sep 2025 19:22:33 +0800
+Subject: [PATCH 19/68] webgpu: MakeFeatureNameSet
+
+---
+ a_tools/fingerprint/controller.cc             |  7 ++++++
+ a_tools/fingerprint/controller.h              |  8 +++++++
+ config.json                                   |  5 ++++
+ .../renderer/modules/webgpu/gpu_adapter.cc    | 24 +++++++++++++++++++
+ 4 files changed, 44 insertions(+)
+
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index a46ec838cf7c0..dbcb09253e9ea 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -207,6 +207,13 @@ bool Controller::ParseWebGPU() {
+             }
+           }
+         }
++        base::DictValue* webgpu_params_features_dict = webgpu_params_dict->FindDict("features");
++        if (webgpu_params_features_dict) {
++          for (auto it = webgpu_params_features_dict->begin(); it != webgpu_params_features_dict->end(); ++it) {
++            // std::cout << it->first << ": " << it->second << ' ' << it->second.type() << std::endl;
++            m_webgpu_features[it->first] = it->second.GetBool();
++          }
++        }
+       }
+     }
+     return true;
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index 2f5142057b55c..c4ddad7f9f2f0 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -163,6 +163,12 @@ public:
+       value = m_webgpu_limits[key];
+     }
+   }
++  std::unordered_map<std::string, bool> GetWebGPUFeatures() {
++    if (m_webgpu_enable) {
++      return m_webgpu_features;
++    }
++    return {};
++  }
+ 
+ private:
+   Controller();
+@@ -209,6 +215,8 @@ private:
+   bool m_webgpu_is_fallback_adapter{false};
+   // limits
+   std::unordered_map<std::string, uint64_t> m_webgpu_limits;
++  // features
++  std::unordered_map<std::string, bool> m_webgpu_features;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/config.json b/config.json
+index b6b72b086af38..9d054daa1d395 100644
+--- a/config.json
++++ b/config.json
+@@ -48,6 +48,11 @@
+       "limits": {
+         "maxTextureDimension1D": 1,
+         "maxBufferSize": 2147483648
++      },
++      "features": {
++        "shader-f16": true,
++        "depth-clip-control": false,
++        "depth32float-stencil8": true
+       }
+     }
+   }
+diff --git a/third_party/blink/renderer/modules/webgpu/gpu_adapter.cc b/third_party/blink/renderer/modules/webgpu/gpu_adapter.cc
+index ee58d68f88670..13095da697b0a 100644
+--- a/third_party/blink/renderer/modules/webgpu/gpu_adapter.cc
++++ b/third_party/blink/renderer/modules/webgpu/gpu_adapter.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++// Yzhyi start
++#include "a_tools/fingerprint/controller.h"
++// Yzhyi end
++
+ #include "third_party/blink/renderer/modules/webgpu/gpu_adapter.h"
+ 
+ #include "services/metrics/public/cpp/ukm_builders.h"
+@@ -37,14 +41,34 @@ GPUSupportedFeatures* MakeFeatureNameSet(wgpu::Adapter adapter) {
+   // SAFETY: Required from caller
+   const auto features_span = UNSAFE_BUFFERS(base::span<const wgpu::FeatureName>(
+       supported_features.features, supported_features.featureCount));
++  // Yzhyi start
++  std::unordered_map<std::string, bool> features_map = fingerprint::Controller::GetInstance().GetWebGPUFeatures();
++  // Yzhyi end
+   for (const auto& f : features_span) {
+     auto feature_name_enum_optional =
+         GPUSupportedFeatures::ToV8FeatureNameEnum(f);
+     if (feature_name_enum_optional) {
++      // Yzhyi start
++      std::string features_key_str = V8GPUFeatureName(feature_name_enum_optional.value()).AsString().Ascii();
++      if (features_map.find(features_key_str) != features_map.end()
++      && !features_map[features_key_str]) {
++        continue;
++      }
++      // Yzhyi end
+       features->AddFeatureName(
+           V8GPUFeatureName(feature_name_enum_optional.value()));
+       }
+   }
++  ;
++
++  // Yzhyi start
++  for (auto it : features_map) {
++    if (it.second) {
++      features->AddFeatureName(
++          V8GPUFeatureName(V8GPUFeatureName::Create(String(it.first)).value()));
++    }
++  }
++  // Yzhyi end
+   return features;
+ }
+ 
+-- 
+2.43.0
+

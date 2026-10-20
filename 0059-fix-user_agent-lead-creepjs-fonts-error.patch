@@ -1,0 +1,259 @@
+From 9bd7d5ea9133a43ead0d16c87685af12ec3f1137 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Mon, 24 Nov 2025 23:11:55 +0800
+Subject: [PATCH 59/68] fix user_agent(lead creepjs fonts error)
+
+---
+ a_tools/fingerprint/controller.cc             |  2 +-
+ a_tools/fingerprint/user_agent/user_agent.cc  | 71 +++++++++++++++++++
+ a_tools/fingerprint/user_agent/user_agent.h   | 24 +++++++
+ components/embedder_support/BUILD.gn          |  4 ++
+ .../embedder_support/user_agent_utils.cc      | 40 +++++++++++
+ config.json                                   | 11 +++
+ 6 files changed, 151 insertions(+), 1 deletion(-)
+
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index 03868fd1ca827..4db2a84065977 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -57,7 +57,7 @@ bool Controller::AppendCommandLine(base::CommandLine* command_line) {
+ }
+ 
+ void Controller::AppendUserAgentCommandLine() {
+-  if (m_user_agent.Enabled() && !m_user_agent.GetUserAgent().empty()) {
++  if (m_user_agent.Enabled() && m_user_agent.UseCommandLine()) {
+     const_cast<base::CommandLine*>(m_command_line.get())
+       ->AppendSwitchASCII(m_user_agent.GetCommandLineKey(), m_user_agent.GetUserAgent());
+   }
+diff --git a/a_tools/fingerprint/user_agent/user_agent.cc b/a_tools/fingerprint/user_agent/user_agent.cc
+index 90af0d278885f..c11558d04e1cd 100644
+--- a/a_tools/fingerprint/user_agent/user_agent.cc
++++ b/a_tools/fingerprint/user_agent/user_agent.cc
+@@ -15,7 +15,16 @@ bool UserAgent::ParseJson(const absl::optional<base::Value> &json_value) {
+   if (const base::DictValue* dict = FindDict(json_value.value(), "user_agent"); dict) {
+     if (FindBool(dict, "enabled", m_enabled); m_enabled) {
+       if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        FindBool(params_dict, "use_command_line", m_use_command_line);
+         FindString(params_dict, "user_agent", m_user_agent);
++        if (const base::DictValue* metadata_dict = FindDict(params_dict, "metadata"); metadata_dict) {
++          FindString(metadata_dict, "full_version", m_metadata_full_version);
++          FindString(metadata_dict, "platform", m_metadata_platform);
++          FindString(metadata_dict, "platform_version", m_metadata_platform_version);
++          FindString(metadata_dict, "architecture", m_metadata_architecture);
++          FindString(metadata_dict, "bitness", m_metadata_bitness);
++          FindBool(metadata_dict, "mobile", m_metadata_mobile);
++        }
+       }
+     }
+     return true;
+@@ -31,4 +40,66 @@ std::string UserAgent::GetUserAgent() {
+   return m_user_agent;
+ }
+ 
++bool UserAgent::UseCommandLine() {
++  return m_use_command_line;
++}
++
++std::string UserAgent::GetMetadateFullVersion() {
++  return m_metadata_full_version;
++}
++
++std::string UserAgent::GetMetadatePlatform() {
++  return m_metadata_platform;
++}
++
++std::string UserAgent::GetMetadatePlatformVersion() {
++  return m_metadata_platform_version;
++}
++
++std::string UserAgent::GetMetadateArchitecture() {
++  return m_metadata_architecture;
++}
++
++std::string UserAgent::GetMetadateBitness() {
++  return m_metadata_bitness;
++}
++
++bool UserAgent::GetMetadateMobile() {
++  return m_metadata_mobile;
++}
++
++void UserAgent::ModifyMetadateFullVersion(std::string& metadata_full_version) {
++  if (!m_metadata_full_version.empty()) {
++    metadata_full_version = m_metadata_full_version;
++  }
++}
++
++void UserAgent::ModifyMetadatePlatform(std::string& metadata_platform) {
++  if (!m_metadata_platform.empty()) {
++    metadata_platform = m_metadata_platform;
++  }
++}
++
++void UserAgent::ModifyMetadatePlatformVersion(std::string& metadata_platform_version) {
++  if (!m_metadata_platform_version.empty()) {
++    metadata_platform_version = m_metadata_platform_version;
++  }
++}
++
++void UserAgent::ModifyMetadateArchitecture(std::string& metadata_architecture) {
++  if (!m_metadata_architecture.empty()) {
++    metadata_architecture = m_metadata_architecture;
++  }
++}
++
++void UserAgent::ModifyMetadateBitness(std::string& metadata_bitness) {
++  if (!m_metadata_bitness.empty()) {
++    metadata_bitness = m_metadata_bitness;
++  }
++}
++
++void UserAgent::ModifyMetadateMobile(bool& metadata_mobile) {
++  metadata_mobile = m_metadata_mobile;
++}
++
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/user_agent/user_agent.h b/a_tools/fingerprint/user_agent/user_agent.h
+index 3c728c3971bc8..5491814ead5fe 100644
+--- a/a_tools/fingerprint/user_agent/user_agent.h
++++ b/a_tools/fingerprint/user_agent/user_agent.h
+@@ -12,10 +12,34 @@ FINGERPRINT_CLASS_DECLARE(UserAgent);
+ public:
+   std::string GetCommandLineKey();
+   std::string GetUserAgent();
++  bool UseCommandLine();
++
++  std::string GetMetadateFullVersion();
++  std::string GetMetadatePlatform();
++  std::string GetMetadatePlatformVersion();
++  std::string GetMetadateArchitecture();
++  std::string GetMetadateBitness();
++  bool GetMetadateMobile();
++
++  void ModifyMetadateFullVersion(std::string& metadata_full_version);
++  void ModifyMetadatePlatform(std::string& metadata_platform);
++  void ModifyMetadatePlatformVersion(std::string& metadata_platform_version);
++  void ModifyMetadateArchitecture(std::string& metadata_architecture);
++  void ModifyMetadateBitness(std::string& metadata_bitness);
++  void ModifyMetadateMobile(bool& metadata_mobile);
+ 
+ private:
++  bool m_use_command_line{false};
+   std::string m_user_agent;
+ 
++  // metadata
++  std::string m_metadata_full_version;
++  std::string m_metadata_platform;
++  std::string m_metadata_platform_version;
++  std::string m_metadata_architecture;
++  std::string m_metadata_bitness;
++  bool m_metadata_mobile{false};
++
+ FINGERPRINT_CLASS_END();
+ 
+ } // namespace fingerprint
+diff --git a/components/embedder_support/BUILD.gn b/components/embedder_support/BUILD.gn
+index 961fb11646eac..be200ac542b21 100644
+--- a/components/embedder_support/BUILD.gn
++++ b/components/embedder_support/BUILD.gn
+@@ -67,6 +67,10 @@ static_library("user_agent") {
+     "//ui/base",
+   ]
+ 
++  # ENABLE_FINGERPRINT
++  deps += [ "//a_tools:a_tools" ]
++  # deps += [ "//base" ]
++
+   if (enable_vr) {
+     deps += [ "//device/vr/public/cpp:features" ]
+   }
+diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedder_support/user_agent_utils.cc
+index 054a0dc411638..e79244f6eb8d2 100644
+--- a/components/embedder_support/user_agent_utils.cc
++++ b/components/embedder_support/user_agent_utils.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #include "components/embedder_support/user_agent_utils.h"
+ 
+ #include <stdint.h>
+@@ -249,6 +253,13 @@ const blink::UserAgentBrandList GetUserAgentBrandFullVersionListInternal(
+ // depending on the UserAgentReduction enterprise policy.
+ std::string GetUserAgentInternal(
+     UserAgentReductionEnterprisePolicyState user_agent_reduction) {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &user_agent = fingerprint::Controller::GetInstance().GetUserAgent(); user_agent.Enabled() && !user_agent.UseCommandLine()) {
++    return user_agent.GetUserAgent();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   std::string product = GetProductAndVersion(user_agent_reduction);
+   if (base::CommandLine::ForCurrentProcess()->HasSwitch(kHeadless)) {
+     product.insert(0, "Headless");
+@@ -672,6 +683,35 @@ blink::UserAgentMetadata GetUserAgentMetadata(const PrefService* pref_service,
+   }
+ #endif
+ 
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &user_agent = fingerprint::Controller::GetInstance().GetUserAgent(); user_agent.Enabled()) {
++    // printf("FullVersionList: %s\n", metadata.SerializeBrandFullVersionList().c_str());
++    // printf("MajorVersionList: %s\n", metadata.SerializeBrandMajorVersionList().c_str());
++    // printf("FormFactors: %s\n", metadata.SerializeFormFactors().c_str());
++    // printf("full_version: %s\n", metadata.full_version.c_str());
++    // printf("platform: %s\n", metadata.platform.c_str());
++    // printf("platform_version: %s\n", metadata.platform_version.c_str());
++    // printf("architecture: %s\n", metadata.architecture.c_str());
++    // printf("model: %s\n", metadata.model.c_str());
++    // printf("mobile: %d\n", metadata.mobile);
++    // printf("bitness: %s\n", metadata.bitness.c_str());
++    // printf("wow64: %d\n", metadata.wow64);
++    // for (auto it : metadata.form_factors) {
++    //   printf("form_factors: %s\n", it.c_str());
++    // }
++    // printf("\n");
++
++    metadata.full_version = user_agent.GetMetadateFullVersion();
++    metadata.platform = user_agent.GetMetadatePlatform();
++    metadata.platform_version = user_agent.GetMetadatePlatformVersion();
++    metadata.architecture = user_agent.GetMetadateArchitecture();
++    metadata.bitness = user_agent.GetMetadateBitness();
++    metadata.mobile = user_agent.GetMetadateMobile();
++    user_agent.ModifyMetadateFullVersion(metadata.full_version);
++    user_agent.ModifyMetadatePlatform(metadata.platform);
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return metadata;
+ }
+ 
+diff --git a/config.json b/config.json
+index ddde18108c7df..f497ec6b26c8a 100644
+--- a/config.json
++++ b/config.json
+@@ -198,6 +198,17 @@
+   "user_agent": {
+     "enabled": true,
+     "params": {
++      "use_command_line": false,
++      "metadata": {
++        "//brand_version_list": "'Chromium';v='139.0.7258.138', 'Not;A=Brand';v='99.0.0.0'",
++        "//MajorVersionList": "'Chromium';v='139', 'Not;A=Brand';v='99'",
++        "full_version": "139.0.0.0",
++        "platform": "Windows",
++        "platform_version": "19.0.0",
++        "architecture": "x86",
++        "bitness": "64",
++        "mobile": false
++      },
+       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+       "//user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
+     }
+-- 
+2.43.0
+

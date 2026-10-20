@@ -1,0 +1,218 @@
+From d61154f42c0763c0a2b4894aecff0c704b1d25e5 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Mon, 3 Nov 2025 19:33:05 +0800
+Subject: [PATCH 56/68] add useragent
+
+---
+ a_tools/BUILD.gn                              |  2 ++
+ a_tools/fingerprint/controller.cc             | 18 ++++++++--
+ a_tools/fingerprint/controller.h              |  4 +++
+ a_tools/fingerprint/user_agent/user_agent.cc  | 34 +++++++++++++++++++
+ a_tools/fingerprint/user_agent/user_agent.h   | 21 ++++++++++++
+ config.json                                   | 11 ++++--
+ .../blink/renderer/core/frame/navigator.cc    |  2 +-
+ 7 files changed, 87 insertions(+), 5 deletions(-)
+ create mode 100644 a_tools/fingerprint/user_agent/user_agent.cc
+ create mode 100644 a_tools/fingerprint/user_agent/user_agent.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index d4544d3df519d..fa6ca2a853bee 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -51,6 +51,8 @@ source_set("a_tools") {
+     "fingerprint/navigator/navigator.cc",
+     "fingerprint/do_not_track/do_not_track.h",
+     "fingerprint/do_not_track/do_not_track.cc",
++    "fingerprint/user_agent/user_agent.h",
++    "fingerprint/user_agent/user_agent.cc",
+   ]
+   deps = [
+     "//base/allocator/partition_allocator:raw_ptr",
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index f3131f76dbf6d..5f96af3f47648 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -1,4 +1,5 @@
+ #include "./controller.h"
++#include <atomic>
+ #include "base/json/json_reader.h"
+ #include "base/logging.h"
+ 
+@@ -25,8 +26,14 @@ Controller::Controller()
+     m_touch(m_json_value),
+     m_webaudio(m_json_value),
+     m_navigator(m_json_value),
+-    m_do_not_track(m_json_value)
+-{}
++    m_do_not_track(m_json_value),
++    m_user_agent(m_json_value)
++{
++
++  if (!m_command_line.get()->HasSwitch("type")) {
++    AppendUserAgentCommandLine();
++  }
++}
+ 
+ Controller::~Controller() = default;
+ 
+@@ -47,6 +54,13 @@ bool Controller::AppendCommandLine(base::CommandLine* command_line) {
+   return false;
+ }
+ 
++void Controller::AppendUserAgentCommandLine() {
++  if (m_user_agent.Enabled() && !m_user_agent.GetUserAgent().empty()) {
++    const_cast<base::CommandLine*>(m_command_line.get())
++      ->AppendSwitchASCII(m_user_agent.GetCommandLineKey(), m_user_agent.GetUserAgent());
++  }
++}
++
+ void Controller::PrintJson() {
+   std::cout << "Controller::PrintJson: " << m_json_str << std::endl;
+   LOG(INFO) << "Controller::PrintJson: " << m_json_str;
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index f6e505b1fe148..0b3a084ba636e 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -23,6 +23,7 @@
+ #include "./webaudio/webaudio.h"
+ #include "./navigator/navigator.h"
+ #include "./do_not_track/do_not_track.h"
++#include "./user_agent/user_agent.h"
+ 
+ namespace fingerprint {
+ 
+@@ -51,10 +52,12 @@ public:
+   WebAudio& GetWebAudio() { return m_webaudio; }
+   Navigator& GetNavigator() { return m_navigator; }
+   DoNotTrack& GetDoNotTrack() { return m_do_not_track; }
++  UserAgent& GetUserAgent() { return m_user_agent; }
+ 
+ private:
+   Controller();
+   ~Controller();
++  void AppendUserAgentCommandLine();
+ 
+   const raw_ptr<const base::CommandLine> m_command_line;
+   bool m_enabled;
+@@ -76,6 +79,7 @@ private:
+   WebAudio m_webaudio;
+   Navigator m_navigator;
+   DoNotTrack m_do_not_track;
++  UserAgent m_user_agent;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/user_agent/user_agent.cc b/a_tools/fingerprint/user_agent/user_agent.cc
+new file mode 100644
+index 0000000000000..90af0d278885f
+--- /dev/null
++++ b/a_tools/fingerprint/user_agent/user_agent.cc
+@@ -0,0 +1,34 @@
++#include "./user_agent.h"
++#include "../utils/random.h"
++#include "../utils/parse_json.h"
++
++namespace fingerprint {
++
++UserAgent::UserAgent(const absl::optional<base::Value> &json_value) {
++  ParseJson(json_value);
++}
++
++UserAgent::~UserAgent() = default;
++
++bool UserAgent::ParseJson(const absl::optional<base::Value> &json_value) {
++  if (!json_value) return false;
++  if (const base::DictValue* dict = FindDict(json_value.value(), "user_agent"); dict) {
++    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
++      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        FindString(params_dict, "user_agent", m_user_agent);
++      }
++    }
++    return true;
++  }
++  return false;
++}
++
++std::string UserAgent::GetCommandLineKey() {
++  return "user-agent";
++}
++
++std::string UserAgent::GetUserAgent() {
++  return m_user_agent;
++}
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/user_agent/user_agent.h b/a_tools/fingerprint/user_agent/user_agent.h
+new file mode 100644
+index 0000000000000..3c728c3971bc8
+--- /dev/null
++++ b/a_tools/fingerprint/user_agent/user_agent.h
+@@ -0,0 +1,21 @@
++# pragma once
++
++#include "../base_fingerprint.h"
++#include "base/values.h"
++#include "base/base_export.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++
++namespace fingerprint {
++
++FINGERPRINT_CLASS_DECLARE(UserAgent);
++
++public:
++  std::string GetCommandLineKey();
++  std::string GetUserAgent();
++
++private:
++  std::string m_user_agent;
++
++FINGERPRINT_CLASS_END();
++
++} // namespace fingerprint
+diff --git a/config.json b/config.json
+index 5af5f76ded708..6e817c036c368 100644
+--- a/config.json
++++ b/config.json
+@@ -175,7 +175,7 @@
+       "//platform": "MacIntel, Win32, Linux x86_64",
+       "app_code_name": "Mozilla",
+       "app_name": "Netscape",
+-      "app_version": "Version is everything in the user agent string past the 'Mozilla/' prefix.",
++      "#app_version": "Version is everything in the user agent string past the 'Mozilla/' prefix.",
+       "product": "Gecko",
+       "#user_agent": "",
+       "#user_agent_data": "",
+@@ -192,9 +192,16 @@
+     }
+   },
+   "do_not_track": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "do_not_track": true
+     }
++  },
++  "user_agent": {
++    "enabled": true,
++    "params": {
++      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
++      "//user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
++    }
+   }
+ }
+diff --git a/third_party/blink/renderer/core/frame/navigator.cc b/third_party/blink/renderer/core/frame/navigator.cc
+index 44ba6c3db09f6..a5833c909decc 100644
+--- a/third_party/blink/renderer/core/frame/navigator.cc
++++ b/third_party/blink/renderer/core/frame/navigator.cc
+@@ -86,7 +86,7 @@ String Navigator::vendorSub() const {
+ String Navigator::platform() const {
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (auto &navigator = fingerprint::Controller::GetInstance().GetNavigator(); navigator.Enabled()) {
++  if (auto &navigator = fingerprint::Controller::GetInstance().GetNavigator(); navigator.Enabled() && !navigator.GetPlatform().empty()) {
+     return String(navigator.GetPlatform());
+   }
+   #endif // ENABLE_FINGERPRINT
+-- 
+2.43.0
+

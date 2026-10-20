@@ -1,0 +1,254 @@
+From af7be6f480d0b7030f966bbba6399c95204ddc50 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Tue, 9 Sep 2025 00:07:55 +0800
+Subject: [PATCH 13/68] fonts: HTMLElement::offsetWidthForBinding and
+ HTMLElement::offsetHeightForBinding
+
+---
+ a_tools/fingerprint/controller.cc             | 36 ++++++++++++++-
+ a_tools/fingerprint/controller.h              | 13 ++++++
+ config.json                                   | 14 ++++--
+ .../blink/renderer/core/html/html_element.cc  | 44 ++-----------------
+ .../webgl/webgl_rendering_context_base.cc     |  4 +-
+ 5 files changed, 63 insertions(+), 48 deletions(-)
+
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index c706d9146a5e3..ad7ff417e4014 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -10,6 +10,17 @@ namespace fingerprint {
+ 
+ const char kYzhyi[] = "yzhyi";
+ 
++int Controller::RandomInt(int min, int max) {
++  if (min > max) {
++    LOG(ERROR) << "Invalid range: min (" << min << ") is greater than max (" << max << ")";
++  }
++  static std::mt19937_64 engine(
++    std::chrono::steady_clock::now().time_since_epoch().count()
++  );
++  std::uniform_int_distribution<int> distribution(min, max);
++  return distribution(engine);
++}
++
+ Controller::Controller()
+   : m_command_line(base::CommandLine::ForCurrentProcess()) {
+   if (m_command_line->HasSwitch(kYzhyi)) {
+@@ -18,6 +29,7 @@ Controller::Controller()
+     m_json_value = base::JSONReader::Read(m_json_str);
+     ParseJson();
+     ParseWebGL();
++    ParseFonts();
+   }
+ }
+ 
+@@ -125,7 +137,29 @@ bool Controller::ParseWebGL() {
+     return true;
+   }
+   return false;
+-
+ }
+ 
++bool Controller::ParseFonts() {
++  base::DictValue* fonts_dict = m_json_value->GetDict().FindDict("fonts");
++  if (fonts_dict) {
++    std::optional<bool> fonts_enable = fonts_dict->FindBool("enable");
++    if (fonts_enable.has_value() && fonts_enable.value()) {
++      m_fonts_enable = fonts_enable.value();
++      base::DictValue* fonts_params_dict = fonts_dict->FindDict("params");
++      if (fonts_params_dict) {
++        std::optional<double> fonts_noise_min = fonts_params_dict->FindDouble("noise_min");
++        if (fonts_noise_min.has_value()) {
++          m_fonts_noise_min = fonts_noise_min.value();
++        }
++        std::optional<double> fonts_noise_max = fonts_params_dict->FindDouble("noise_max");
++        if (fonts_noise_max.has_value()) {
++          m_fonts_noise_max = fonts_noise_max.value();
++        }
++      }
++    }
++    return true;
++  }
++  return false;
+ }
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index 051704a3bb050..aef921d4a9155 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -24,12 +24,14 @@ public:
+     });
+     return *controller;
+   }
++  static int RandomInt(int min, int max);
+ 
+   bool AppendCommandLine(base::CommandLine* command_line);
+   void PrintJson();
+   void ParseJson();
+   bool ParseCanvas();
+   bool ParseWebGL();
++  bool ParseFonts();
+ 
+   // canvas
+   void ModifyCanvasWidth(unsigned &value) {
+@@ -74,6 +76,12 @@ public:
+     value += static_cast<int>(m_webgl_pixels_height);
+   }
+ 
++  // fonts
++  int GetFontsNoise() {
++    return RandomInt(static_cast<int>(m_fonts_noise_min),
++                     static_cast<int>(m_fonts_noise_max));
++  }
++
+ private:
+   Controller();
+   ~Controller();
+@@ -102,6 +110,11 @@ private:
+   double m_webgl_pixels_y{0};
+   double m_webgl_pixels_width{0};
+   double m_webgl_pixels_height{0};
++  
++  // fonts
++  bool m_fonts_enable{false};
++  double m_fonts_noise_min{0};
++  double m_fonts_noise_max{0};
+ };
+ 
+ } // namespace fingerprint
+diff --git a/config.json b/config.json
+index 7f2c84e528546..011816ef2517e 100644
+--- a/config.json
++++ b/config.json
+@@ -12,19 +12,25 @@
+   },
+   "webgl": {
+     "enable": true,
+-    "#params": {
++    "params": {
+       "unmasked_vendor_webgl": "Google Inc. (NVIDIA)",
+       "unmasked_renderer_webgl": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11-30.0.14.9676)"
+     },
+-    "#extensions": {
++    "extensions": {
+       "random_shuffle": false
+     },
+     "pixels": {
+       "x": 0,
+       "y": 0,
+       "width": 0,
+-      "height": 0 
++      "height": 0
+     }
+   },
+-  "#fonts": true
++  "fonts": {
++    "enable": true,
++    "params": {
++      "noise_min": 0,
++      "noise_max": 1
++    }
++  }
+ }
+diff --git a/third_party/blink/renderer/core/html/html_element.cc b/third_party/blink/renderer/core/html/html_element.cc
+index 3acde18fd299a..090a6f300e853 100644
+--- a/third_party/blink/renderer/core/html/html_element.cc
++++ b/third_party/blink/renderer/core/html/html_element.cc
+@@ -23,12 +23,7 @@
+  *
+  */
+ // Yzhyi start
+-// #include <random>
+-// #include "base/command_line.h"
+-// #include "third_party/blink/public/common/switches.h"
+-// #include "base/json/json_reader.h"
+-// #include "base/values.h"
+-// #include "third_party/abseil-cpp/absl/types/optional.h"
++#include "a_tools/fingerprint/controller.h"
+ // Yzhyi end
+ 
+ #include "third_party/blink/renderer/core/html/html_element.h"
+@@ -3017,19 +3012,6 @@ int HTMLElement::offsetTopForBinding() {
+   return OffsetTopOrLeft(/*top=*/true);
+ }
+ 
+-// Yzhyi start
+-// int getRandomIntForFoo2Modern() {
+-//   static std::mt19937 generator(static_cast<unsigned long>(time(NULL))); // 静态以确保只初始化一次
+-//   std::uniform_int_distribution<int> distribution(0, 9);
+-//   int tmp = distribution(generator);
+-//   if (tmp > 0){
+-//     return 0;
+-//   }else{
+-//     return 1;
+-//   }
+-// }
+-// Yzhyi end
+-
+ int HTMLElement::offsetWidthForBinding() {
+   GetDocument().EnsurePaintLocationDataValidForNode(
+       this, DocumentUpdateReason::kJavaScript);
+@@ -3038,17 +3020,7 @@ int HTMLElement::offsetWidthForBinding() {
+     result = AdjustedOffsetForZoom(layout_object->OffsetWidth());
+   }
+   // Yzhyi start
+-  // const ::base::CommandLine* yzhyi_command_line = ::base::CommandLine::ForCurrentProcess();
+-  // if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
+-  //   std::string yzhyi_command_str = yzhyi_command_line->
+-  //     GetSwitchValueASCII(switches::kYzhyi);
+-  //   absl::optional<base::Value> yzhyi_command_value =
+-  //     base::JSONReader::Read(yzhyi_command_str);
+-  //   std::optional<bool> data = yzhyi_command_value->GetDict().FindBool("fonts");
+-  //   if (data.has_value() && data.value()) {
+-  //     result = result + getRandomIntForFoo2Modern();
+-  //   }
+-  // }
++  result += fingerprint::Controller::GetInstance().GetFontsNoise();
+   // Yzhyi end
+   return result;
+ }
+@@ -3062,17 +3034,7 @@ int HTMLElement::offsetHeightForBinding() {
+     result = AdjustedOffsetForZoom(layout_object->OffsetHeight());
+   }
+   // Yzhyi start
+-  // const ::base::CommandLine* yzhyi_command_line = ::base::CommandLine::ForCurrentProcess();
+-  // if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
+-  //   std::string yzhyi_command_str = yzhyi_command_line->
+-  //     GetSwitchValueASCII(switches::kYzhyi);
+-  //   absl::optional<base::Value> yzhyi_command_value =
+-  //     base::JSONReader::Read(yzhyi_command_str);
+-  //   std::optional<bool> data = yzhyi_command_value->GetDict().FindBool("fonts");
+-  //   if (data.has_value() && data.value()) {
+-  //     result = result + getRandomIntForFoo2Modern();
+-  //   }
+-  // }
++  result += fingerprint::Controller::GetInstance().GetFontsNoise();
+   // Yzhyi end
+   return result;
+ }
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index c0a36eb80a219..59181dcd58612 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -4365,7 +4365,7 @@ String WebGLRenderingContextBase::getShaderInfoLog(WebGLShader* shader) {
+ WebGLShaderPrecisionFormat* WebGLRenderingContextBase::getShaderPrecisionFormat(
+     GLenum shader_type,
+     GLenum precision_type) {
+-  // Yzhyi TODO: params VERTEX_SHADER
++  //  TODO: Yzhyi params VERTEX_SHADER
+   if (isContextLost())
+     return nullptr;
+   if (!ValidateShaderType("getShaderPrecisionFormat", shader_type)) {
+@@ -4425,7 +4425,7 @@ WebGLRenderingContextBase::getSupportedExtensions() {
+     // 打乱result中的元素顺序
+     std::shuffle(result.begin(), result.end(), engine);
+   }
+-  // TODO: can customize
++  // TODO: Yzhyi can customize
+   // Yzhyi end
+ 
+   return result;
+-- 
+2.43.0
+

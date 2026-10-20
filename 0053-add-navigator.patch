@@ -1,0 +1,389 @@
+From 42d810b18cca7f882a485e3dcaf3b1aa28599936 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Thu, 30 Oct 2025 23:20:36 +0800
+Subject: [PATCH 53/68] add navigator
+
+---
+ a_tools/README.md                             |  5 ++
+ a_tools/fingerprint/controller.cc             |  3 +-
+ a_tools/fingerprint/controller.h              |  3 +
+ a_tools/fingerprint/navigator/navigator.cc    | 56 ++++++++++++++++---
+ a_tools/fingerprint/navigator/navigator.h     | 24 +++++++-
+ config.json                                   | 19 ++++++-
+ .../blink/renderer/core/frame/navigator.cc    | 45 +++++++++++++++
+ .../blink/renderer/core/frame/navigator_id.cc | 32 +++++++++++
+ 8 files changed, 175 insertions(+), 12 deletions(-)
+
+diff --git a/a_tools/README.md b/a_tools/README.md
+index 1c07eafbe8b36..1907646edf958 100644
+--- a/a_tools/README.md
++++ b/a_tools/README.md
+@@ -24,6 +24,11 @@ google_api_key="AIzaSyDwr302FpOSkGRpLlUpPThNTDPbXcIn_FM"
+ chrome_pgo_phase = 0
+ ```
+ 
++# 开多个浏览器实例
++```bash
++--user-data-dir=/tmp/chrome_temp_$(date +%s)
++```
++
+ # TODO
+ ```c++
+ base/system/sys_info_posix.cc:SysInfo::OperatingSystemArchitecture() -> header 要修改这个
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index 9fd497e4f4f4f..3f6a4122a2af2 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -23,7 +23,8 @@ Controller::Controller()
+     m_network_information(m_json_value),
+     m_window_screen(m_json_value),
+     m_touch(m_json_value),
+-    m_webaudio(m_json_value)
++    m_webaudio(m_json_value),
++    m_navigator(m_json_value)
+ {}
+ 
+ Controller::~Controller() = default;
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index 295e159e37e6f..9d9670008399c 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -21,6 +21,7 @@
+ #include "./window_screen/window_screen.h"
+ #include "./touch/touch.h"
+ #include "./webaudio/webaudio.h"
++#include "./navigator/navigator.h"
+ 
+ namespace fingerprint {
+ 
+@@ -47,6 +48,7 @@ public:
+   WindowScreen& GetWindowScreen() { return m_window_screen; }
+   Touch& GetTouch() { return m_touch; }
+   WebAudio& GetWebAudio() { return m_webaudio; }
++  Navigator& GetNavigator() { return m_navigator; }
+ 
+ private:
+   Controller();
+@@ -70,6 +72,7 @@ private:
+   WindowScreen m_window_screen;
+   Touch m_touch;
+   WebAudio m_webaudio;
++  Navigator m_navigator;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/navigator/navigator.cc b/a_tools/fingerprint/navigator/navigator.cc
+index f6ba428f60419..7246ee5f548ae 100644
+--- a/a_tools/fingerprint/navigator/navigator.cc
++++ b/a_tools/fingerprint/navigator/navigator.cc
+@@ -12,10 +12,19 @@ Navigator::~Navigator() = default;
+ 
+ bool Navigator::ParseJson(const absl::optional<base::Value> &json_value) {
+   if (!json_value) return false;
+-  if (const base::DictValue* dict = FindDict(json_value.value(), "hardware_concurrency"); dict) {
++  if (const base::DictValue* dict = FindDict(json_value.value(), "navigator"); dict) {
+     if (FindBool(dict, "enabled", m_enabled); m_enabled) {
+       if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
+-        FindDouble(params_dict, "cores", m_cores);
++        FindBool(params_dict, "cookie_enabled", m_cookie_enabled);
++        FindBool(params_dict, "webdriver", m_webdriver);
++        FindString(params_dict, "product_sub", m_product_sub);
++        FindString(params_dict, "vendor", m_vendor);
++        FindString(params_dict, "vendor_sub", m_vendor_sub);
++        FindString(params_dict, "platform", m_platform);
++        FindString(params_dict, "app_code_name", m_app_code_name);
++        FindString(params_dict, "app_name", m_app_name);
++        FindString(params_dict, "app_version", m_app_version);
++        FindString(params_dict, "product", m_product);
+       }
+     }
+     return true;
+@@ -23,11 +32,44 @@ bool Navigator::ParseJson(const absl::optional<base::Value> &json_value) {
+   return false;
+ }
+ 
+-unsigned Navigator::ModifyHardwareConcurrency(unsigned cores) {
+-  if (m_enabled) {
+-    return m_cores;
+-  }
+-  return cores;
++bool Navigator::GetCookieEnabled() {
++  return m_cookie_enabled;
++}
++
++bool Navigator::GetWebdriver() {
++  return m_webdriver;
++}
++
++std::string Navigator::GetProductSub() {
++  return m_product_sub;
++}
++
++std::string Navigator::GetVendor() {
++  return m_vendor;
++}
++
++std::string Navigator::GetVendorSub() {
++  return m_vendor_sub;
++}
++
++std::string Navigator::GetPlatform() {
++  return m_platform;
++}
++
++std::string Navigator::GetAppCodeName() {
++  return m_app_code_name;
++}
++
++std::string Navigator::GetAppName() {
++  return m_app_name;
++}
++
++std::string Navigator::GetAppVersion() {
++  return m_app_version;
++}
++
++std::string Navigator::GetProduct() {
++  return m_product;
+ }
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/navigator/navigator.h b/a_tools/fingerprint/navigator/navigator.h
+index ab13799e38a98..63fda3f178e59 100644
+--- a/a_tools/fingerprint/navigator/navigator.h
++++ b/a_tools/fingerprint/navigator/navigator.h
+@@ -10,10 +10,30 @@ namespace fingerprint {
+ FINGERPRINT_CLASS_DECLARE(Navigator);
+ 
+ public:
+-  BASE_EXPORT unsigned ModifyHardwareConcurrency(unsigned cores);
++  BASE_EXPORT bool GetCookieEnabled();
++  BASE_EXPORT bool GetWebdriver();
++  BASE_EXPORT std::string GetProductSub();
++  BASE_EXPORT std::string GetVendor();
++  BASE_EXPORT std::string GetVendorSub();
++  BASE_EXPORT std::string GetPlatform();
++
++  BASE_EXPORT std::string GetAppCodeName();
++  BASE_EXPORT std::string GetAppName();
++  BASE_EXPORT std::string GetAppVersion();
++  BASE_EXPORT std::string GetProduct();
+ 
+ private:
+-  double m_cores{0};
++  bool m_cookie_enabled{true};
++  bool m_webdriver{false};
++  std::string m_product_sub;
++  std::string m_vendor;
++  std::string m_vendor_sub;
++  std::string m_platform;
++
++  std::string m_app_code_name;
++  std::string m_app_name;
++  std::string m_app_version;
++  std::string m_product;
+ 
+ FINGERPRINT_CLASS_END();
+ 
+diff --git a/config.json b/config.json
+index 871e5c4a95ec9..5d875655dd41c 100644
+--- a/config.json
++++ b/config.json
+@@ -93,13 +93,13 @@
+     }
+   },
+   "device_memory": {
+-    "enabled": false,
++    "enabled": true,
+     "params": {
+       "GiB": 2
+     }
+   },
+   "hardware_concurrency": {
+-    "enabled": false,
++    "enabled": true,
+     "params": {
+       "cores": 8
+     }
+@@ -166,6 +166,21 @@
+   "navigator": {
+     "enabled": true,
+     "params": {
++      "cookie_enabled": false,
++      "webdriver": false,
++      "#product_sub": "20030107",
++      "#vendor": "Google Inc.",
++      "#vendor_sub": "",
++      "platform": "MacIntel",
++      "//platform": "MacIntel, Win32, Linux x86_64",
++      "#app_code_name": "Mozilla",
++      "#app_name": "Netscape",
++      "#app_version": "Version is everything in the user agent string past the 'Mozilla/' prefix.",
++      "#product": "Gecko",
++      "#user_agent": "",
++      "#user_agent_data": "",
++      "#language": "zh-CN",
++      "#languages": ["zh-CN", "zh"]
+     }
+   }
+ }
+diff --git a/third_party/blink/renderer/core/frame/navigator.cc b/third_party/blink/renderer/core/frame/navigator.cc
+index 1a73d4a8f097f..44ba6c3db09f6 100644
+--- a/third_party/blink/renderer/core/frame/navigator.cc
++++ b/third_party/blink/renderer/core/frame/navigator.cc
+@@ -21,6 +21,10 @@
+  *  MA 02110-1301, USA
+  */
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #include "third_party/blink/renderer/core/frame/navigator.h"
+ 
+ #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
+@@ -43,10 +47,24 @@ namespace blink {
+ Navigator::Navigator(ExecutionContext* context) : NavigatorBase(context) {}
+ 
+ String Navigator::productSub() const {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &navigator = fingerprint::Controller::GetInstance().GetNavigator(); navigator.Enabled() && !navigator.GetProductSub().empty()) {
++    return String(navigator.GetProductSub());
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return "20030107";
+ }
+ 
+ String Navigator::vendor() const {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &navigator = fingerprint::Controller::GetInstance().GetNavigator(); navigator.Enabled() && !navigator.GetVendor().empty()) {
++    return String(navigator.GetVendor());
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   // Do not change without good cause. History:
+   // https://code.google.com/p/chromium/issues/detail?id=276813
+   // https://www.w3.org/Bugs/Public/show_bug.cgi?id=27786
+@@ -55,10 +73,24 @@ String Navigator::vendor() const {
+ }
+ 
+ String Navigator::vendorSub() const {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &navigator = fingerprint::Controller::GetInstance().GetNavigator(); navigator.Enabled() && !navigator.GetVendorSub().empty()) {
++    return String(navigator.GetVendorSub());
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return "";
+ }
+ 
+ String Navigator::platform() const {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &navigator = fingerprint::Controller::GetInstance().GetNavigator(); navigator.Enabled()) {
++    return String(navigator.GetPlatform());
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   // TODO(955620): Consider changing devtools overrides to only allow overriding
+   // the platform with a frozen platform to distinguish between
+   // mobile and desktop when ReduceUserAgent is enabled.
+@@ -81,6 +113,12 @@ bool Navigator::cookieEnabled() const {
+   Settings* settings = DomWindow()->GetFrame()->GetSettings();
+   bool cookie_enabled = settings && settings->GetCookieEnabled();
+ 
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &navigator = fingerprint::Controller::GetInstance().GetNavigator(); navigator.Enabled()) {
++    return navigator.GetCookieEnabled();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+ #if !BUILDFLAG(IS_ANDROID)
+   // We don't want to print this message for WebView, and the utility is much
+   // lower for all Android platforms anyway, so it seems reasonable to skip.
+@@ -101,6 +139,13 @@ bool Navigator::cookieEnabled() const {
+ }
+ 
+ bool Navigator::webdriver() const {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &navigator = fingerprint::Controller::GetInstance().GetNavigator(); navigator.Enabled()) {
++    return navigator.GetWebdriver();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   if (RuntimeEnabledFeatures::AutomationControlledEnabled())
+     return true;
+ 
+diff --git a/third_party/blink/renderer/core/frame/navigator_id.cc b/third_party/blink/renderer/core/frame/navigator_id.cc
+index 50a1727f8dbd5..4f654a8920efb 100644
+--- a/third_party/blink/renderer/core/frame/navigator_id.cc
++++ b/third_party/blink/renderer/core/frame/navigator_id.cc
+@@ -29,6 +29,10 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #include "third_party/blink/renderer/core/frame/navigator_id.h"
+ 
+ #include "base/feature_list.h"
+@@ -45,14 +49,35 @@
+ namespace blink {
+ 
+ String NavigatorID::appCodeName() {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &navigator = fingerprint::Controller::GetInstance().GetNavigator(); navigator.Enabled() && !navigator.GetAppCodeName().empty()) {
++    return String(navigator.GetAppCodeName());
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return "Mozilla";
+ }
+ 
+ String NavigatorID::appName() {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &navigator = fingerprint::Controller::GetInstance().GetNavigator(); navigator.Enabled() && !navigator.GetAppName().empty()) {
++    return String(navigator.GetAppName());
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return "Netscape";
+ }
+ 
+ String NavigatorID::appVersion() {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &navigator = fingerprint::Controller::GetInstance().GetNavigator(); navigator.Enabled() && !navigator.GetAppVersion().empty()) {
++    return String(navigator.GetAppVersion());
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   // Version is everything in the user agent string past the "Mozilla/" prefix.
+   const String& agent = userAgent();
+   return agent.Substring(agent.find('/') + 1);
+@@ -84,6 +109,13 @@ String NavigatorID::platform() const {
+ }
+ 
+ String NavigatorID::product() {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &navigator = fingerprint::Controller::GetInstance().GetNavigator(); navigator.Enabled() && !navigator.GetProduct().empty()) {
++    return String(navigator.GetProduct());
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return "Gecko";
+ }
+ 
+-- 
+2.43.0
+

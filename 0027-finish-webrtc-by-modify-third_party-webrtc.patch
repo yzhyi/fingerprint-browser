@@ -1,0 +1,123 @@
+From 9c41c9180806dd1ff7aea3af6136be8e8abe2a49 Mon Sep 17 00:00:00 2001
+From: yuzhengyi02 <yuzhengyi02@meituan.com>
+Date: Tue, 23 Sep 2025 09:54:35 +0800
+Subject: [PATCH 27/68] finish webrtc by modify third_party/webrtc
+
+---
+ a_tools/BUILD.gn                     |  1 +
+ a_tools/fingerprint/webrtc/webrtc.cc | 26 ++++++++++++++++++++++++++
+ a_tools/fingerprint/webrtc/webrtc.h  | 10 ++++++++++
+ config.json                          | 12 ++++++++++++
+ 4 files changed, 49 insertions(+)
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index ee29f85cfe0bb..2871420e8535b 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -32,6 +32,7 @@ static_library("a_tools") {
+   # 这里依赖 Chromium 最基础的 base 库（如字符串处理）
+   deps = [
+     "//base",
++    "//third_party/webrtc_overrides:webrtc_component",
+   ]
+ 
+   # 编译配置（继承 Chromium 通用编译规则，如警告等级、C++ 标准等）
+diff --git a/a_tools/fingerprint/webrtc/webrtc.cc b/a_tools/fingerprint/webrtc/webrtc.cc
+index cead9027f9870..645735e972362 100644
+--- a/a_tools/fingerprint/webrtc/webrtc.cc
++++ b/a_tools/fingerprint/webrtc/webrtc.cc
+@@ -14,6 +14,18 @@ bool WebRTC::ParseJson(const absl::optional<base::Value> &json_value) {
+   if (const base::DictValue* dict = FindDict(json_value.value(), "webrtc"); dict) {
+     if (FindBool(dict, "enabled", m_enabled); m_enabled) {
+       if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        if (const base::DictValue* host_dict = FindDict(params_dict, "host"); host_dict) {
++          FindString(host_dict, "ip", m_host_ip);
++          FindDouble(host_dict, "port", m_host_port);
++        }
++        if (const base::DictValue* srflx_dict = FindDict(params_dict, "srflx"); srflx_dict) {
++          FindString(srflx_dict, "ip", m_srflx_ip);
++          FindDouble(srflx_dict, "port", m_srflx_port);
++        }
++        if (const base::DictValue* relay_dict = FindDict(params_dict, "relay"); relay_dict) {
++          FindString(relay_dict, "ip", m_relay_ip);
++          FindDouble(relay_dict, "port", m_relay_port);
++        }
+       }
+     }
+     return true;
+@@ -21,4 +33,18 @@ bool WebRTC::ParseJson(const absl::optional<base::Value> &json_value) {
+   return false;
+ }
+ 
++void WebRTC::ModifyAddress(webrtc::IceCandidateType type, webrtc::SocketAddress &address) {
++  if (m_enabled) {
++    if (type == webrtc::IceCandidateType::kHost) {
++      address = webrtc::SocketAddress(m_host_ip, static_cast<int>(m_host_port));
++    }
++    else if (type == webrtc::IceCandidateType::kSrflx) {
++      address = webrtc::SocketAddress(m_srflx_ip, static_cast<int>(m_srflx_port));
++    }
++    else if (type == webrtc::IceCandidateType::kRelay) {
++      address = webrtc::SocketAddress(m_relay_ip, static_cast<int>(m_relay_port));
++    }
++  }
++}
++
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/webrtc/webrtc.h b/a_tools/fingerprint/webrtc/webrtc.h
+index 409a051bac38c..9b3c1102d785c 100644
+--- a/a_tools/fingerprint/webrtc/webrtc.h
++++ b/a_tools/fingerprint/webrtc/webrtc.h
+@@ -1,8 +1,10 @@
+ # pragma once
+ 
++#include <cstdint>
+ #include "a_tools/fingerprint/base_fingerprint.h"
+ #include "base/values.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
++#include "third_party/webrtc/api/candidate.h"
+ 
+ namespace fingerprint {
+ 
+@@ -21,7 +23,15 @@ private:
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+ 
++  void ModifyAddress(webrtc::IceCandidateType type, webrtc::SocketAddress &address);
++
+ private:
++  std::string m_host_ip;
++  double m_host_port{0};
++  std::string m_srflx_ip;
++  double m_srflx_port{0};
++  std::string m_relay_ip;
++  double m_relay_port{0};
+ };
+ 
+ } // namespace fingerprint
+diff --git a/config.json b/config.json
+index 608186531d4fb..6d3beb50fb524 100644
+--- a/config.json
++++ b/config.json
+@@ -60,6 +60,18 @@
+   "webrtc": {
+     "enabled": true,
+     "params": {
++      "host": {
++        "ip": "192.168.0.127",
++        "port": 9999
++      },
++      "srflx": {
++        "ip": "38.71.127.148",
++        "port": 8888
++      },
++      "relay": {
++        "ip": "38.71.127.149",
++        "port": 7777
++      }
+     }
+   }
+ }
+-- 
+2.43.0
+

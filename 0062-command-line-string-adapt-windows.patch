@@ -1,0 +1,50 @@
+From e2dbbe91dc719e7d41e020a020446af16a84f13a Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Sun, 21 Dec 2025 21:58:44 +0800
+Subject: [PATCH 62/68] command line string adapt windows
+
+---
+ base/command_line.cc | 14 +++++++++++---
+ 1 file changed, 11 insertions(+), 3 deletions(-)
+
+diff --git a/base/command_line.cc b/base/command_line.cc
+index b604c9e0466cd..2fd5307a81d1f 100644
+--- a/base/command_line.cc
++++ b/base/command_line.cc
+@@ -633,7 +633,7 @@ void CommandLine::ParseFromString(StringViewType command_line) {
+ #endif  // BUILDFLAG(IS_WIN)
+ 
+ #ifdef ENABLE_FINGERPRINT
+-bool IsJsonFile(const std::string& filename) {
++bool IsJsonFile(const CommandLine::StringType& filename) {
+     std::filesystem::path filePath(filename);
+     return filePath.extension() == ".json";
+ }
+@@ -670,14 +670,22 @@ void CommandLine::AppendSwitchesAndArguments(span<const StringType> argv) {
+     if (parse_switches && IsSwitch(arg, &switch_string, &switch_value)) {
+ 
+       #ifdef ENABLE_FINGERPRINT
+-      const char kFingerprint[] = "--fp";
+-      if (switch_string == CommandLine::StringType(kFingerprint)) {
++      #if BUILDFLAG(IS_WIN)
++      const CommandLine::StringType kFingerprint = base::UTF8ToWide("--fp");
++      #elif BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
++      const CommandLine::StringType kFingerprint = "--fp";
++      #endif
++      if (switch_string == kFingerprint) {
+         if (IsJsonFile(switch_value)) {
+           ::base::FilePath path(switch_value);
+           std::string temp_str;
+           ReadFileToString(path, &temp_str);
+           if (IsValidJson(temp_str)) {
++            #if BUILDFLAG(IS_WIN)
++            switch_value = base::UTF8ToWide(temp_str);
++            #elif BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
+             switch_value = temp_str;
++            #endif
+           }
+         }
+       }
+-- 
+2.43.0
+

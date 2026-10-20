@@ -1,0 +1,134 @@
+From 6a16a58f84c557a3c590eaeeb7d628b3a9db654c Mon Sep 17 00:00:00 2001
+From: yuzhengyi02 <yuzhengyi02@meituan.com>
+Date: Fri, 5 Sep 2025 20:32:05 +0800
+Subject: [PATCH 08/68] WebGL: WebGLRenderingContextBase::ReadPixelsHelper
+
+---
+ .../webgl/webgl_rendering_context_base.cc     | 72 +++++++++++++------
+ 1 file changed, 52 insertions(+), 20 deletions(-)
+
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index 239a1bef9ef40..acec354b4ef95 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -4073,17 +4073,17 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+           absl::optional<base::Value> yzhyi_command_value =
+             base::JSONReader::Read(yzhyi_command_str);
+           base::DictValue* webgl_dict = yzhyi_command_value->GetDict().FindDict("webgl");
+-          base::DictValue* debug_renderer_info_dict = webgl_dict->FindDict("debug_renderer_info");
+-          std::string *unmasked_renderer_str = debug_renderer_info_dict->FindString("unmasked_renderer");
+-          if (unmasked_renderer_str != nullptr) {
+-            return WebGLAny(script_state,
+-                            String(*unmasked_renderer_str));
+-          }
+-          else {
+-            return WebGLAny(script_state,
+-                            String(ContextGL()->GetString(GL_RENDERER)));
++          base::DictValue* get_parameter_dict = webgl_dict->FindDict("get_parameter");
++          if (get_parameter_dict) {
++            std::string *unmasked_renderer_str = get_parameter_dict->FindString("unmasked_renderer_webgl");
++            if (unmasked_renderer_str != nullptr) {
++              return WebGLAny(script_state,
++                              String(*unmasked_renderer_str));
++            }
+           }
+         }
++        return WebGLAny(script_state,
++                        String(ContextGL()->GetString(GL_RENDERER)));
+         // Yzhyi end
+       }
+       SynthesizeGLError(
+@@ -4107,17 +4107,17 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+           absl::optional<base::Value> yzhyi_command_value =
+             base::JSONReader::Read(yzhyi_command_str);
+           base::DictValue* webgl_dict = yzhyi_command_value->GetDict().FindDict("webgl");
+-          base::DictValue* debug_renderer_info_dict = webgl_dict->FindDict("debug_renderer_info");
+-          std::string *unmasked_vendor_str = debug_renderer_info_dict->FindString("unmasked_vendor");
+-          if (unmasked_vendor_str != nullptr) {
+-            return WebGLAny(script_state,
+-                            String(*unmasked_vendor_str));
+-          }
+-          else {
+-            return WebGLAny(script_state,
+-                            String(ContextGL()->GetString(GL_VENDOR)));
++          base::DictValue* get_parameter_dict = webgl_dict->FindDict("get_parameter");
++          if (get_parameter_dict) {
++            std::string *unmasked_vendor_str = get_parameter_dict->FindString("unmasked_vendor_webgl");
++            if (unmasked_vendor_str != nullptr) {
++              return WebGLAny(script_state,
++                              String(*unmasked_vendor_str));
++            }
+           }
+         }
++        return WebGLAny(script_state,
++                        String(ContextGL()->GetString(GL_VENDOR)));
+         // Yzhyi end
+       }
+       SynthesizeGLError(
+@@ -4399,6 +4399,7 @@ String WebGLRenderingContextBase::getShaderInfoLog(WebGLShader* shader) {
+ WebGLShaderPrecisionFormat* WebGLRenderingContextBase::getShaderPrecisionFormat(
+     GLenum shader_type,
+     GLenum precision_type) {
++  // Yzhyi TODO: params VERTEX_SHADER
+   if (isContextLost())
+     return nullptr;
+   if (!ValidateShaderType("getShaderPrecisionFormat", shader_type)) {
+@@ -4459,8 +4460,8 @@ WebGLRenderingContextBase::getSupportedExtensions() {
+     absl::optional<base::Value> yzhyi_command_value =
+       base::JSONReader::Read(yzhyi_command_str);
+     base::DictValue* webgl_dict = yzhyi_command_value->GetDict().FindDict("webgl");
+-    base::DictValue* extensions_dict = webgl_dict->FindDict("extensions");
+-    std::optional<bool> random_shuffle = extensions_dict->FindBool("random_shuffle");
++    base::DictValue* get_supported_extensions_dict = webgl_dict->FindDict("get_supported_extensions");
++    std::optional<bool> random_shuffle = get_supported_extensions_dict->FindBool("random_shuffle");
+     if (random_shuffle.has_value() && random_shuffle.value()) {
+       // 使用当前时间作为随机数生成的种子
+       unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+@@ -5225,6 +5226,36 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
+                                                  GLenum type,
+                                                  DOMArrayBufferView* pixels,
+                                                  int64_t offset) {
++
++  // Yzhyi start
++  const base::CommandLine *yzhyi_command_line =
++    base::CommandLine::ForCurrentProcess();
++  if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
++    std::string yzhyi_command_str = yzhyi_command_line->
++      GetSwitchValueASCII(switches::kYzhyi);
++    absl::optional<base::Value> yzhyi_command_value =
++      base::JSONReader::Read(yzhyi_command_str);
++    base::DictValue* webgl_dict = yzhyi_command_value->GetDict().FindDict("webgl");
++    base::DictValue* read_pixels_helper_dict = webgl_dict->FindDict("read_pixels_helper");
++    std::optional<int> x_int = read_pixels_helper_dict->FindInt("x");
++    std::optional<int> y_int = read_pixels_helper_dict->FindInt("y");
++    std::optional<int> width_int = read_pixels_helper_dict->FindInt("width");
++    std::optional<int> height_int = read_pixels_helper_dict->FindInt("height");
++    if (x_int.has_value()) {
++      x += x_int.value();
++    }
++    if (y_int.has_value()) {
++      y += y_int.value();
++    }
++    if (width_int.has_value()) {
++      width += width_int.value();
++    }
++    if (height_int.has_value()) {
++      height += height_int.value();
++    }
++  }
++  // Yzhyi end
++
+   if (isContextLost())
+     return;
+   // Due to WebGL's same-origin restrictions, it is not possible to
+@@ -5290,6 +5321,7 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
+     if (!binder.Succeeded()) {
+       return;
+     }
++    // NOTE: from here to read image.
+     ContextGL()->ReadPixels(x, y, width, height, format, type, data);
+ 
+     if (IdentifiabilityStudySettings::Get()->ShouldSampleType(
+-- 
+2.43.0
+

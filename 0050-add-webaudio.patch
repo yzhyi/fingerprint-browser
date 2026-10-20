@@ -1,0 +1,245 @@
+From 529ba970df49c04aeb3fe9ad030dd92124c7c5af Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Wed, 29 Oct 2025 14:35:59 +0800
+Subject: [PATCH 50/68] add webaudio
+
+---
+ a_tools/BUILD.gn                              |  2 +
+ a_tools/fingerprint/controller.cc             |  3 +-
+ a_tools/fingerprint/controller.h              |  3 ++
+ .../hardware_concurrency.cc                   |  2 -
+ a_tools/fingerprint/utils/random.h            |  1 +
+ a_tools/fingerprint/webaudio/webaudio.cc      | 38 +++++++++++++++++++
+ a_tools/fingerprint/webaudio/webaudio.h       | 34 +++++++++++++++++
+ config.json                                   | 13 +++----
+ .../platform/audio/dynamics_compressor.cc     |  9 +++++
+ 9 files changed, 95 insertions(+), 10 deletions(-)
+ create mode 100644 a_tools/fingerprint/webaudio/webaudio.cc
+ create mode 100644 a_tools/fingerprint/webaudio/webaudio.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index f8b994953e021..ccd009bedfacd 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -45,6 +45,8 @@ source_set("a_tools") {
+     "fingerprint/window_screen/window_screen.cc",
+     "fingerprint/touch/touch.h",
+     "fingerprint/touch/touch.cc",
++    "fingerprint/webaudio/webaudio.h",
++    "fingerprint/webaudio/webaudio.cc",
+   ]
+   deps = [
+     "//base/allocator/partition_allocator:raw_ptr",
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index 9047ede5ec5f6..9fd497e4f4f4f 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -22,7 +22,8 @@ Controller::Controller()
+     m_battery(m_json_value),
+     m_network_information(m_json_value),
+     m_window_screen(m_json_value),
+-    m_touch(m_json_value)
++    m_touch(m_json_value),
++    m_webaudio(m_json_value)
+ {}
+ 
+ Controller::~Controller() = default;
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index 0b9dc6a1ec0be..295e159e37e6f 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -20,6 +20,7 @@
+ #include "./network_information/network_information.h"
+ #include "./window_screen/window_screen.h"
+ #include "./touch/touch.h"
++#include "./webaudio/webaudio.h"
+ 
+ namespace fingerprint {
+ 
+@@ -45,6 +46,7 @@ public:
+   NetworkInformation& GetNetworkInformation() { return m_network_information; }
+   WindowScreen& GetWindowScreen() { return m_window_screen; }
+   Touch& GetTouch() { return m_touch; }
++  WebAudio& GetWebAudio() { return m_webaudio; }
+ 
+ private:
+   Controller();
+@@ -67,6 +69,7 @@ private:
+   NetworkInformation m_network_information;
+   WindowScreen m_window_screen;
+   Touch m_touch;
++  WebAudio m_webaudio;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.cc b/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.cc
+index 3579f796e4d90..4930a2e30dd17 100644
+--- a/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.cc
++++ b/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.cc
+@@ -1,8 +1,6 @@
+ #include "./hardware_concurrency.h"
+ #include "../utils/random.h"
+ #include "../utils/parse_json.h"
+-#include <cstdint>
+-#include <iostream>
+ 
+ namespace fingerprint {
+ 
+diff --git a/a_tools/fingerprint/utils/random.h b/a_tools/fingerprint/utils/random.h
+index 15b8ba505bcf7..a6744a244fae8 100644
+--- a/a_tools/fingerprint/utils/random.h
++++ b/a_tools/fingerprint/utils/random.h
+@@ -3,6 +3,7 @@
+ #include <cstdint>
+ #include "base/base_export.h"
+ 
++// TODO: 每个指纹固定一个 seed
+ namespace fingerprint {
+ 
+ // 生成指定范围内的随机整数
+diff --git a/a_tools/fingerprint/webaudio/webaudio.cc b/a_tools/fingerprint/webaudio/webaudio.cc
+new file mode 100644
+index 0000000000000..f252a39f28714
+--- /dev/null
++++ b/a_tools/fingerprint/webaudio/webaudio.cc
+@@ -0,0 +1,38 @@
++#include "./webaudio.h"
++#include "../utils/random.h"
++#include "../utils/parse_json.h"
++
++namespace fingerprint {
++
++WebAudio::WebAudio(const absl::optional<base::Value> &json_value) {
++  ParseJson(json_value);
++}
++
++WebAudio::~WebAudio() = default;
++
++bool WebAudio::ParseJson(const absl::optional<base::Value> &json_value) {
++  if (!json_value) return false;
++  if (const base::DictValue* dict = FindDict(json_value.value(), "webaudio"); dict) {
++    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
++      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        if (const base::DictValue* sample_rate_dict = FindDict(params_dict, "sample_rate"); sample_rate_dict) {
++          FindDouble(sample_rate_dict, "seed", m_sample_rate.m_seed);
++          FindDouble(sample_rate_dict, "noise_min", m_sample_rate.m_noise_min);
++          FindDouble(sample_rate_dict, "noise_max", m_sample_rate.m_noise_max);
++        }
++      }
++    }
++    return true;
++  }
++  return false;
++}
++
++void WebAudio::ModifySampleRate(float &sample_rate) {
++  if (m_enabled) {
++    sample_rate += RandomDouble(m_sample_rate.m_noise_min,
++                                m_sample_rate.m_noise_max,
++                               static_cast<uint64_t>(m_sample_rate.m_seed));
++  }
++}
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/webaudio/webaudio.h b/a_tools/fingerprint/webaudio/webaudio.h
+new file mode 100644
+index 0000000000000..6c66a53ca695a
+--- /dev/null
++++ b/a_tools/fingerprint/webaudio/webaudio.h
+@@ -0,0 +1,34 @@
++# pragma once
++
++#include "../base_fingerprint.h"
++#include "base/values.h"
++#include "base/base_export.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++
++namespace fingerprint {
++
++class Controller;
++
++class WebAudio : public BaseFingerprint {
++public:
++  friend Controller;
++  WebAudio(const WebAudio&) = delete;
++  WebAudio& operator=(const WebAudio&) = delete;
++
++private:
++  explicit WebAudio(const absl::optional<base::Value> &json_value);
++  ~WebAudio() override;
++
++public:
++  bool ParseJson(const absl::optional<base::Value> &json_value) override;
++  BASE_EXPORT void ModifySampleRate(float &sample_rate);
++
++private:
++  struct SampleRate {
++    double m_seed{0};
++    double m_noise_min{0};
++    double m_noise_max{0};
++  } m_sample_rate;
++};
++
++} // namespace fingerprint
+diff --git a/config.json b/config.json
+index 1ae207b83dfa4..84458d49f1e6b 100644
+--- a/config.json
++++ b/config.json
+@@ -122,7 +122,7 @@
+     }
+   },
+   "window_screen": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "screen": {
+         "width": 2560,
+@@ -152,13 +152,12 @@
+     }
+   },
+   "webaudio": {
+-    "enabled": false,
++    "enabled": true,
+     "params": {
+-      "offline_audio_Context": {
+-        "sample_rate": {
+-          "noise_min": 0,
+-          "noise_max": 100
+-        }
++      "sample_rate": {
++        "seed": 1,
++        "noise_min": -1,
++        "noise_max": 1
+       }
+     }
+   }
+diff --git a/third_party/blink/renderer/platform/audio/dynamics_compressor.cc b/third_party/blink/renderer/platform/audio/dynamics_compressor.cc
+index 992c4d4736229..d76237c47b22b 100644
+--- a/third_party/blink/renderer/platform/audio/dynamics_compressor.cc
++++ b/third_party/blink/renderer/platform/audio/dynamics_compressor.cc
+@@ -26,6 +26,10 @@
+  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #ifdef UNSAFE_BUFFERS_BUILD
+ // TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+ #pragma allow_unsafe_buffers
+@@ -105,6 +109,11 @@ DynamicsCompressor::DynamicsCompressor(float sample_rate,
+       db_knee_threshold_(kUninitializedValue),
+       db_yknee_threshold_(kUninitializedValue),
+       knee_(kUninitializedValue) {
++
++  #ifdef ENABLE_FINGERPRINT
++  fingerprint::Controller::GetInstance().GetWebAudio().ModifySampleRate(sample_rate_);
++  #endif // ENABLE_FINGERPRINT
++
+   SetNumberOfChannels(number_of_channels);
+   // Initializes most member variables
+   Reset();
+-- 
+2.43.0
+

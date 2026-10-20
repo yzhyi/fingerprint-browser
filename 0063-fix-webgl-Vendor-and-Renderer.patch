@@ -1,0 +1,130 @@
+From 05960fbfd6b664146a3fbf5cf6da68cdd154261b Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Tue, 23 Dec 2025 15:02:21 +0800
+Subject: [PATCH 63/68] fix webgl Vendor and Renderer
+
+---
+ config.json                                     | 12 ++++++------
+ .../client/gles2_implementation.cc              | 17 +++++++++++++++++
+ .../webgl/webgl_rendering_context_base.cc       | 16 ----------------
+ 3 files changed, 23 insertions(+), 22 deletions(-)
+
+diff --git a/config.json b/config.json
+index 9eb389c197fe2..acdf42d81dac1 100644
+--- a/config.json
++++ b/config.json
+@@ -12,12 +12,12 @@
+     }
+   },
+   "webgl": {
+-    "enabled": false,
++    "enabled": true,
+     "params": {
+       "#unmasked_vendor_webgl": "Google Inc. (Apple)",
+       "#unmasked_renderer_webgl": "ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Pro, Unspecified Version)",
+-      "#unmasked_vendor_webgl": "Google Inc. (NVIDIA)",
+-      "#unmasked_renderer_webgl": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11-30.0.14.9676)",
++      "unmasked_vendor_webgl": "Google Inc. (NVIDIA)",
++      "unmasked_renderer_webgl": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11-30.0.14.9676)",
+       "extensions": {
+         "add": [
+           "TEST"
+@@ -164,7 +164,7 @@
+     }
+   },
+   "navigator": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "cookie_enabled": false,
+       "webdriver": false,
+@@ -196,7 +196,7 @@
+     }
+   },
+   "user_agent": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "use_command_line": false,
+       "metadata": {
+@@ -221,7 +221,7 @@
+     }
+   },
+   "client_rects": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "seed": 3,
+       "noise_min": 0,
+diff --git a/gpu/command_buffer/client/gles2_implementation.cc b/gpu/command_buffer/client/gles2_implementation.cc
+index 12a6091c18777..402b7f5e5f0ff 100644
+--- a/gpu/command_buffer/client/gles2_implementation.cc
++++ b/gpu/command_buffer/client/gles2_implementation.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #ifdef UNSAFE_BUFFERS_BUILD
+ // TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+ #pragma allow_unsafe_buffers
+@@ -4483,6 +4487,19 @@ const GLubyte* GLES2Implementation::GetString(GLenum name) {
+   const GLubyte* result = GetStringHelper(name);
+   GPU_CLIENT_LOG("  returned " << reinterpret_cast<const char*>(result));
+   CheckGLError();
++
++  #ifdef ENABLE_FINGERPRINT
++  if (name == GL_VENDOR && !fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedVendorWebgl().empty()) {
++    static std::string vendor_webgl = fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedVendorWebgl();
++    result = reinterpret_cast<const GLubyte*>(vendor_webgl.c_str());
++  }
++
++  if (name == GL_RENDERER && !fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedRendererWebgl().empty()) {
++    static std::string renderer_webgl = fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedRendererWebgl();
++    result = reinterpret_cast<const GLubyte*>(renderer_webgl.c_str());
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return result;
+ }
+ 
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index d250bd8ff636f..a32c3f191666e 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -4057,14 +4057,6 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+               pname, IdentifiabilityBenignStringToken(
+                          String(ContextGL()->GetString(GL_RENDERER))));
+         }
+-
+-        #ifdef ENABLE_FINGERPRINT
+-        if (!fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedRendererWebgl().empty()) {
+-          return WebGLAny(script_state,
+-                          String(fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedRendererWebgl()));
+-        }
+-        #endif // ENABLE_FINGERPRINT
+-
+         return WebGLAny(script_state,
+                         String(ContextGL()->GetString(GL_RENDERER)));
+       }
+@@ -4080,14 +4072,6 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+               pname, IdentifiabilityBenignStringToken(
+                          String(ContextGL()->GetString(GL_VENDOR))));
+         }
+-
+-        #ifdef ENABLE_FINGERPRINT
+-        if (!fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedVendorWebgl().empty()) {
+-          return WebGLAny(script_state,
+-                          String(fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedVendorWebgl()));
+-        }
+-        #endif // ENABLE_FINGERPRINT
+-
+         return WebGLAny(script_state,
+                         String(ContextGL()->GetString(GL_VENDOR)));
+       }
+-- 
+2.43.0
+

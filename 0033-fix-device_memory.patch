@@ -1,0 +1,900 @@
+From 20e448eff635e18fb5350b600882452a43c03976 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Tue, 21 Oct 2025 14:27:14 +0800
+Subject: [PATCH 33/68] fix device_memory
+
+---
+ BUILD.gn                                      |  4 +-
+ a_tools/BUILD.gn                              |  4 +-
+ a_tools/fingerprint/controller.cc             |  1 +
+ .../device_memory/device_memory.cc            |  9 ++-
+ .../fingerprint/device_memory/device_memory.h |  4 +-
+ a_tools/fingerprint/webgpu/webgpu.h           |  1 -
+ advanced_example/BUILD.gn                     |  8 --
+ advanced_example/app/BUILD.gn                 | 15 ----
+ advanced_example/app/main.cpp                 | 68 -----------------
+ advanced_example/customer/BUILD.gn            | 17 -----
+ advanced_example/customer/customer.cpp        | 73 -------------------
+ advanced_example/customer/customer.h          | 33 ---------
+ .../customer/customer_factory.cpp             |  6 --
+ advanced_example/customer/customer_factory.h  |  9 ---
+ advanced_example/interfaces/BUILD.gn          | 41 -----------
+ advanced_example/interfaces/base_interfaces.h | 27 -------
+ .../interfaces/customer_interface.h           | 27 -------
+ .../interfaces/product_interface.h            | 28 -------
+ advanced_example/product/BUILD.gn             | 17 -----
+ advanced_example/product/product.cpp          | 71 ------------------
+ advanced_example/product/product.h            | 34 ---------
+ advanced_example/product/product_factory.cpp  |  6 --
+ advanced_example/product/product_factory.h    |  9 ---
+ base/system/sys_info_linux.cc                 |  1 -
+ config.json                                   |  6 +-
+ content/browser/BUILD.gn                      |  7 +-
+ third_party/blink/common/BUILD.gn             |  4 +
+ .../approximated_device_memory.cc             |  7 ++
+ third_party/blink/renderer/core/BUILD.gn      | 10 +--
+ .../blink/renderer/modules/canvas/BUILD.gn    |  4 +-
+ 30 files changed, 34 insertions(+), 517 deletions(-)
+ delete mode 100644 advanced_example/BUILD.gn
+ delete mode 100644 advanced_example/app/BUILD.gn
+ delete mode 100644 advanced_example/app/main.cpp
+ delete mode 100644 advanced_example/customer/BUILD.gn
+ delete mode 100644 advanced_example/customer/customer.cpp
+ delete mode 100644 advanced_example/customer/customer.h
+ delete mode 100644 advanced_example/customer/customer_factory.cpp
+ delete mode 100644 advanced_example/customer/customer_factory.h
+ delete mode 100644 advanced_example/interfaces/BUILD.gn
+ delete mode 100644 advanced_example/interfaces/base_interfaces.h
+ delete mode 100644 advanced_example/interfaces/customer_interface.h
+ delete mode 100644 advanced_example/interfaces/product_interface.h
+ delete mode 100644 advanced_example/product/BUILD.gn
+ delete mode 100644 advanced_example/product/product.cpp
+ delete mode 100644 advanced_example/product/product.h
+ delete mode 100644 advanced_example/product/product_factory.cpp
+ delete mode 100644 advanced_example/product/product_factory.h
+
+diff --git a/BUILD.gn b/BUILD.gn
+index 44f87eca37152..7ebce01c19296 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -877,9 +877,7 @@ group("gn_all") {
+   }
+ 
+   # Yzhyi start
+-  deps += [
+-    "//a_tools",
+-  ]
++  deps += [ "//a_tools" ]
+   # Yzhyi end
+ }
+ 
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index f8c605674742b..2a7011f5ae206 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -32,9 +32,9 @@ static_library("a_tools") {
+     "fingerprint/device_memory/device_memory.cc",
+   ]
+ 
+-  public_deps = [
++  # public_deps = [
+   #   "//base",
+-  ]
++  # ]
+   deps = [
+     "//base/allocator/partition_allocator:raw_ptr",
+     "//third_party/abseil-cpp:absl",
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index 583314dd56d33..bdc638f561337 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -40,6 +40,7 @@ bool Controller::AppendCommandLine(base::CommandLine* command_line) {
+ }
+ 
+ void Controller::PrintJson() {
++  std::cout << "Controller::PrintJson: " << m_json_str << std::endl;
+   LOG(INFO) << "Controller::PrintJson: " << m_json_str;
+ }
+ 
+diff --git a/a_tools/fingerprint/device_memory/device_memory.cc b/a_tools/fingerprint/device_memory/device_memory.cc
+index 5b505c5419af0..7d0b908809cce 100644
+--- a/a_tools/fingerprint/device_memory/device_memory.cc
++++ b/a_tools/fingerprint/device_memory/device_memory.cc
+@@ -1,6 +1,8 @@
+ #include "device_memory.h"
+ #include "a_tools/fingerprint/utils/random.h"
+ #include "a_tools/fingerprint/utils/parse_json.h"
++#include <cstdint>
++#include <iostream>
+ 
+ namespace fingerprint {
+ 
+@@ -15,7 +17,7 @@ bool DeviceMemory::ParseJson(const absl::optional<base::Value> &json_value) {
+   if (const base::DictValue* dict = FindDict(json_value.value(), "device_memory"); dict) {
+     if (FindBool(dict, "enabled", m_enabled); m_enabled) {
+       if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
+-        FindDouble(params_dict, "MiB", m_MiB);
++        FindDouble(params_dict, "GiB", m_GiB);
+       }
+     }
+     return true;
+@@ -23,11 +25,10 @@ bool DeviceMemory::ParseJson(const absl::optional<base::Value> &json_value) {
+   return false;
+ }
+ 
+-uint64_t DeviceMemory::GetDeviceMemory() {
++void DeviceMemory::ModifyDeviceMemory(float &GiB) {
+   if (m_enabled) {
+-    return m_MiB * 1024 * 1024;
++    GiB = m_GiB;
+   }
+-  return -1;
+ }
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/device_memory/device_memory.h b/a_tools/fingerprint/device_memory/device_memory.h
+index c3986df64b892..e3287ec4707b9 100644
+--- a/a_tools/fingerprint/device_memory/device_memory.h
++++ b/a_tools/fingerprint/device_memory/device_memory.h
+@@ -20,10 +20,10 @@ private:
+ 
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+-  uint64_t GetDeviceMemory();
++  void ModifyDeviceMemory(float &GiB);
+ 
+ private:
+-  double m_MiB{0};
++  double m_GiB{0};
+ };
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/webgpu/webgpu.h b/a_tools/fingerprint/webgpu/webgpu.h
+index 0e9392c538748..2609925498591 100644
+--- a/a_tools/fingerprint/webgpu/webgpu.h
++++ b/a_tools/fingerprint/webgpu/webgpu.h
+@@ -2,7 +2,6 @@
+ 
+ #include "a_tools/fingerprint/base_fingerprint.h"
+ #include "base/values.h"
+-#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+ namespace fingerprint {
+diff --git a/advanced_example/BUILD.gn b/advanced_example/BUILD.gn
+deleted file mode 100644
+index 5372b35c8297a..0000000000000
+--- a/advanced_example/BUILD.gn
++++ /dev/null
+@@ -1,8 +0,0 @@
+-# 高级示例根构建文件
+-
+-# 默认组，引用所有子目录的构建目标
+-group("default") {
+-  deps = [
+-    "//advanced_example/app:advanced_example",
+-  ]
+-}
+diff --git a/advanced_example/app/BUILD.gn b/advanced_example/app/BUILD.gn
+deleted file mode 100644
+index 410ee630808be..0000000000000
+--- a/advanced_example/app/BUILD.gn
++++ /dev/null
+@@ -1,15 +0,0 @@
+-# 应用程序构建文件
+-
+-# 主程序 - 组装层
+-executable("advanced_example") {
+-  sources = [
+-    "main.cpp",
+-  ]
+-
+-  # 依赖所有具体实现
+-  deps = [
+-    "//advanced_example/interfaces:all_interfaces",
+-    "//advanced_example/product:product_impl",
+-    "//advanced_example/customer:customer_impl",
+-  ]
+-}
+diff --git a/advanced_example/app/main.cpp b/advanced_example/app/main.cpp
+deleted file mode 100644
+index 944ffefce1975..0000000000000
+--- a/advanced_example/app/main.cpp
++++ /dev/null
+@@ -1,68 +0,0 @@
+-
+-#include <iostream>
+-#include <memory>
+-#include <string>
+-
+-// 包含接口头文件
+-#include "../interfaces/base_interfaces.h"
+-#include "../interfaces/product_interface.h"
+-#include "../interfaces/customer_interface.h"
+-
+-// 包含实现头文件
+-#include "../product/product.h"
+-#include "../product/product_factory.h"
+-#include "../customer/customer.h"
+-#include "../customer/customer_factory.h"
+-
+-int main() {
+-    std::cout << "===== 高级接口层示例 =====" << std::endl << std::endl;
+-
+-    // 创建工厂
+-    std::shared_ptr<IProductFactory> productFactory = std::make_shared<ProductFactory>();
+-    std::shared_ptr<ICustomerFactory> customerFactory = std::make_shared<CustomerFactory>();
+-
+-    // 使用工厂创建对象
+-    std::shared_ptr<ICustomer> customer1 = customerFactory->createCustomer("张三");
+-    std::shared_ptr<ICustomer> customer2 = customerFactory->createCustomer("李四");
+-
+-    std::shared_ptr<IProduct> product1 = productFactory->createProduct("笔记本电脑", 5999.99);
+-    std::shared_ptr<IProduct> product2 = productFactory->createProduct("智能手机", 3999.99);
+-    std::shared_ptr<IProduct> product3 = productFactory->createProduct("耳机", 999.99);
+-
+-    std::cout << std::endl;
+-
+-    // 建立关系
+-    product1->setCustomer(customer1);  // 产品关联客户
+-    product2->setCustomer(customer1);
+-    product3->setCustomer(customer2);
+-
+-    customer1->addProduct(product1);   // 客户购买产品
+-    customer1->addProduct(product2);
+-    customer2->addProduct(product3);
+-
+-    std::cout << std::endl;
+-
+-    // 显示结果
+-    std::cout << "客户 " << customer1->getName() << " 的产品列表:" << std::endl;
+-    double total1 = customer1->getTotalSpent();
+-    std::cout << "  总价: ¥" << total1 << std::endl;
+-
+-    std::cout << std::endl;
+-
+-    std::cout << "客户 " << customer2->getName() << " 的产品列表:" << std::endl;
+-    double total2 = customer2->getTotalSpent();
+-    std::cout << "  总价: ¥" << total2 << std::endl;
+-
+-    std::cout << std::endl;
+-    std::cout << "===== 依赖关系分析 =====" << std::endl;
+-    std::cout << "Product 类 → 依赖 ICustomer 接口 (不依赖 Customer 类)" << std::endl;
+-    std::cout << "Customer 类 → 依赖 IProduct 接口 (不依赖 Product 类)" << std::endl;
+-    std::cout << "IProduct 接口 → 依赖 ISerializable, IIdentifiable, INamable 接口" << std::endl;
+-    std::cout << "ICustomer 接口 → 依赖 ISerializable, IIdentifiable, INamable 接口" << std::endl;
+-    std::cout << std::endl;
+-    std::cout << "✓ 没有循环依赖！" << std::endl;
+-
+-    // customer_test();
+-
+-    return 0;
+-}
+diff --git a/advanced_example/customer/BUILD.gn b/advanced_example/customer/BUILD.gn
+deleted file mode 100644
+index 5b507f0d4d75f..0000000000000
+--- a/advanced_example/customer/BUILD.gn
++++ /dev/null
+@@ -1,17 +0,0 @@
+-# 客户实现构建文件
+-
+-# 客户实现
+-source_set("customer_impl") {
+-  sources = [
+-    "customer.h",
+-    "customer.cpp",
+-    "customer_factory.h",
+-    "customer_factory.cpp",
+-  ]
+-
+-  # 只依赖客户接口和产品接口，不依赖产品实现
+-  public_deps = [
+-    "//advanced_example/interfaces:customer_interface",
+-    "//advanced_example/interfaces:product_interface",  # 只需要接口，不需要实现
+-  ]
+-}
+diff --git a/advanced_example/customer/customer.cpp b/advanced_example/customer/customer.cpp
+deleted file mode 100644
+index 3fd2b0d9c6683..0000000000000
+--- a/advanced_example/customer/customer.cpp
++++ /dev/null
+@@ -1,73 +0,0 @@
+-#include "customer.h"
+-#include "../interfaces/product_interface.h"
+-#include <iostream>
+-#include <sstream>
+-#include <random>
+-
+-Customer::Customer(const std::string& name) : name_(name) {
+-    // 生成随机ID
+-    std::random_device rd;
+-    std::mt19937 gen(rd());
+-    std::uniform_int_distribution<> dis(10000, 99999);
+-    id_ = "C" + std::to_string(dis(gen));
+-}
+-
+-Customer::~Customer() = default;
+-
+-std::string Customer::getId() const {
+-    return id_;
+-}
+-
+-std::string Customer::getName() const {
+-    return name_;
+-}
+-
+-void Customer::setName(const std::string& name) {
+-    name_ = name;
+-}
+-
+-std::string Customer::serialize() const {
+-    std::stringstream ss;
+-    ss << id_ << "," << name_ << "," << products_.size();
+-    return ss.str();
+-}
+-
+-bool Customer::deserialize(const std::string& data) {
+-    std::stringstream ss(data);
+-    std::string id, name;
+-    size_t productCount;
+-
+-    std::getline(ss, id, ',');
+-    std::getline(ss, name, ',');
+-    ss >> productCount;
+-
+-    if (ss.fail()) {
+-        return false;
+-    }
+-
+-    id_ = id;
+-    name_ = name;
+-    return true;
+-}
+-
+-void Customer::addProduct(std::shared_ptr<IProduct> product) {
+-    products_.push_back(product);
+-    std::cout << "客户 " << name_ << " 购买了产品: " << product->getName() << std::endl;
+-}
+-
+-std::vector<std::shared_ptr<IProduct>> Customer::getProducts() const {
+-    return products_;
+-}
+-
+-double Customer::getTotalSpent() const {
+-    double total = 0.0;
+-    for (const auto& product : products_) {
+-        std::cout << "  - " << product->getName() << ": ¥" << product->getPrice() << std::endl;
+-        total += product->getPrice();
+-    }
+-    return total;
+-}
+-
+-void customer_test() {
+-    std::cout << "--------------------------------------" << std::endl;
+-}
+diff --git a/advanced_example/customer/customer.h b/advanced_example/customer/customer.h
+deleted file mode 100644
+index a4a16b2330e63..0000000000000
+--- a/advanced_example/customer/customer.h
++++ /dev/null
+@@ -1,33 +0,0 @@
+-#pragma once
+-
+-#include "../interfaces/customer_interface.h"
+-#include <vector>
+-#include <string>
+-
+-// 客户实现类
+-class Customer : public ICustomer {
+-private:
+-    std::string id_;
+-    std::string name_;
+-    std::vector<std::shared_ptr<IProduct>> products_;
+-
+-public:
+-    Customer(const std::string& name);
+-    ~Customer() override;
+-
+-    // IIdentifiable接口实现
+-    std::string getId() const override;
+-
+-    // INamable接口实现
+-    std::string getName() const override;
+-    void setName(const std::string& name) override;
+-
+-    // ISerializable接口实现
+-    std::string serialize() const override;
+-    bool deserialize(const std::string& data) override;
+-
+-    // ICustomer接口实现
+-    void addProduct(std::shared_ptr<IProduct> product) override;
+-    std::vector<std::shared_ptr<IProduct>> getProducts() const override;
+-    double getTotalSpent() const override;
+-};
+diff --git a/advanced_example/customer/customer_factory.cpp b/advanced_example/customer/customer_factory.cpp
+deleted file mode 100644
+index 3328853ba6713..0000000000000
+--- a/advanced_example/customer/customer_factory.cpp
++++ /dev/null
+@@ -1,6 +0,0 @@
+-#include "customer_factory.h"
+-#include "customer.h"
+-
+-std::shared_ptr<ICustomer> CustomerFactory::createCustomer(const std::string& name) {
+-    return std::make_shared<Customer>(name);
+-}
+diff --git a/advanced_example/customer/customer_factory.h b/advanced_example/customer/customer_factory.h
+deleted file mode 100644
+index f6d9d084caf4e..0000000000000
+--- a/advanced_example/customer/customer_factory.h
++++ /dev/null
+@@ -1,9 +0,0 @@
+-#pragma once
+-
+-#include "../interfaces/customer_interface.h"
+-
+-// 客户工厂实现
+-class CustomerFactory : public ICustomerFactory {
+-public:
+-    std::shared_ptr<ICustomer> createCustomer(const std::string& name) override;
+-};
+diff --git a/advanced_example/interfaces/BUILD.gn b/advanced_example/interfaces/BUILD.gn
+deleted file mode 100644
+index 69c3b1b030e17..0000000000000
+--- a/advanced_example/interfaces/BUILD.gn
++++ /dev/null
+@@ -1,41 +0,0 @@
+-# 接口层构建文件
+-
+-# 基础接口
+-source_set("base_interfaces") {
+-  sources = [
+-    "base_interfaces.h",
+-  ]
+-}
+-
+-# 产品接口 - 依赖基础接口
+-source_set("product_interface") {
+-  sources = [
+-    "product_interface.h",
+-  ]
+-
+-  # 使用public_deps而不是deps，因为我们需要传递接口给依赖者
+-  public_deps = [
+-    ":base_interfaces",
+-  ]
+-}
+-
+-# 客户接口 - 依赖基础接口
+-source_set("customer_interface") {
+-  sources = [
+-    "customer_interface.h",
+-  ]
+-
+-  # 使用public_deps而不是deps，因为我们需要传递接口给依赖者
+-  public_deps = [
+-    ":base_interfaces",
+-  ]
+-}
+-
+-# 所有接口的集合
+-group("all_interfaces") {
+-  public_deps = [
+-    ":base_interfaces",
+-    ":product_interface",
+-    ":customer_interface",
+-  ]
+-}
+diff --git a/advanced_example/interfaces/base_interfaces.h b/advanced_example/interfaces/base_interfaces.h
+deleted file mode 100644
+index 1115cddaf74fa..0000000000000
+--- a/advanced_example/interfaces/base_interfaces.h
++++ /dev/null
+@@ -1,27 +0,0 @@
+-#pragma once
+-
+-#include <memory>
+-#include <string>
+-
+-// 基础可序列化接口
+-class ISerializable {
+-public:
+-    virtual ~ISerializable() = default;
+-    virtual std::string serialize() const = 0;
+-    virtual bool deserialize(const std::string& data) = 0;
+-};
+-
+-// 基础可标识接口
+-class IIdentifiable {
+-public:
+-    virtual ~IIdentifiable() = default;
+-    virtual std::string getId() const = 0;
+-};
+-
+-// 基础可命名接口
+-class INamable {
+-public:
+-    virtual ~INamable() = default;
+-    virtual std::string getName() const = 0;
+-    virtual void setName(const std::string& name) = 0;
+-};
+diff --git a/advanced_example/interfaces/customer_interface.h b/advanced_example/interfaces/customer_interface.h
+deleted file mode 100644
+index d78135bfec4a4..0000000000000
+--- a/advanced_example/interfaces/customer_interface.h
++++ /dev/null
+@@ -1,27 +0,0 @@
+-#pragma once
+-
+-#include "base_interfaces.h"
+-#include <vector>
+-
+-// 前向声明
+-class IProduct;
+-
+-// 客户接口 - 继承多个基础接口
+-class ICustomer : public ISerializable, public IIdentifiable, public INamable {
+-public:
+-    ~ICustomer() override = default;
+-
+-    // 客户特有方法
+-    virtual void addProduct(std::shared_ptr<IProduct> product) = 0;
+-    virtual std::vector<std::shared_ptr<IProduct>> getProducts() const = 0;
+-    virtual double getTotalSpent() const = 0;
+-};
+-
+-// 客户工厂接口
+-class ICustomerFactory {
+-public:
+-    virtual ~ICustomerFactory() = default;
+-    virtual std::shared_ptr<ICustomer> createCustomer(const std::string& name) = 0;
+-};
+-
+-void customer_test();
+diff --git a/advanced_example/interfaces/product_interface.h b/advanced_example/interfaces/product_interface.h
+deleted file mode 100644
+index f6d2fb125594c..0000000000000
+--- a/advanced_example/interfaces/product_interface.h
++++ /dev/null
+@@ -1,28 +0,0 @@
+-#pragma once
+-
+-#include "base_interfaces.h"
+-#include <vector>
+-
+-// 前向声明
+-class ICustomer;
+-
+-// 产品接口 - 继承多个基础接口
+-class IProduct : public ISerializable, public IIdentifiable, public INamable {
+-public:
+-    ~IProduct() override = default;
+-
+-    // 产品特有方法
+-    virtual double getPrice() const = 0;
+-    virtual void setPrice(double price) = 0;
+-
+-    // 关联客户的方法
+-    virtual void setCustomer(std::shared_ptr<ICustomer> customer) = 0;
+-    virtual std::shared_ptr<ICustomer> getCustomer() const = 0;
+-};
+-
+-// 产品工厂接口
+-class IProductFactory {
+-public:
+-    virtual ~IProductFactory() = default;
+-    virtual std::shared_ptr<IProduct> createProduct(const std::string& name, double price) = 0;
+-};
+diff --git a/advanced_example/product/BUILD.gn b/advanced_example/product/BUILD.gn
+deleted file mode 100644
+index 60f42189d0805..0000000000000
+--- a/advanced_example/product/BUILD.gn
++++ /dev/null
+@@ -1,17 +0,0 @@
+-# 产品实现构建文件
+-
+-# 产品实现
+-source_set("product_impl") {
+-  sources = [
+-    "product.h",
+-    "product.cpp",
+-    "product_factory.h",
+-    "product_factory.cpp",
+-  ]
+-
+-  # 只依赖产品接口和客户接口，不依赖客户实现
+-  public_deps = [
+-    "//advanced_example/interfaces:product_interface",
+-    "//advanced_example/interfaces:customer_interface",  # 只需要接口，不需要实现
+-  ]
+-}
+diff --git a/advanced_example/product/product.cpp b/advanced_example/product/product.cpp
+deleted file mode 100644
+index 72cab85b165ef..0000000000000
+--- a/advanced_example/product/product.cpp
++++ /dev/null
+@@ -1,71 +0,0 @@
+-#include "product.h"
+-#include "../interfaces/customer_interface.h"
+-#include <iostream>
+-#include <sstream>
+-#include <iomanip>
+-#include <random>
+-
+-Product::Product(const std::string& name, double price)
+-    : name_(name), price_(price) {
+-    // 生成随机ID
+-    std::random_device rd;
+-    std::mt19937 gen(rd());
+-    std::uniform_int_distribution<> dis(10000, 99999);
+-    id_ = "P" + std::to_string(dis(gen));
+-}
+-
+-Product::~Product() = default;
+-
+-std::string Product::getId() const {
+-    return id_;
+-}
+-
+-std::string Product::getName() const {
+-    return name_;
+-}
+-
+-void Product::setName(const std::string& name) {
+-    name_ = name;
+-}
+-
+-std::string Product::serialize() const {
+-    std::stringstream ss;
+-    ss << id_ << "," << name_ << "," << std::fixed << std::setprecision(2) << price_;
+-    return ss.str();
+-}
+-
+-bool Product::deserialize(const std::string& data) {
+-    std::stringstream ss(data);
+-    std::string id, name;
+-    double price;
+-
+-    std::getline(ss, id, ',');
+-    std::getline(ss, name, ',');
+-    ss >> price;
+-
+-    if (ss.fail()) {
+-        return false;
+-    }
+-
+-    id_ = id;
+-    name_ = name;
+-    price_ = price;
+-    return true;
+-}
+-
+-double Product::getPrice() const {
+-    return price_;
+-}
+-
+-void Product::setPrice(double price) {
+-    price_ = price;
+-}
+-
+-void Product::setCustomer(std::shared_ptr<ICustomer> customer) {
+-    customer_ = customer;
+-    std::cout << "产品 " << name_ << " 被分配给客户: " << customer->getName() << std::endl;
+-}
+-
+-std::shared_ptr<ICustomer> Product::getCustomer() const {
+-    return customer_;
+-}
+diff --git a/advanced_example/product/product.h b/advanced_example/product/product.h
+deleted file mode 100644
+index 1315fde35c45f..0000000000000
+--- a/advanced_example/product/product.h
++++ /dev/null
+@@ -1,34 +0,0 @@
+-#pragma once
+-
+-#include "../interfaces/product_interface.h"
+-#include <string>
+-
+-// 产品实现类
+-class Product : public IProduct {
+-private:
+-    std::string id_;
+-    std::string name_;
+-    double price_;
+-    std::shared_ptr<ICustomer> customer_;
+-
+-public:
+-    Product(const std::string& name, double price);
+-    ~Product() override;
+-
+-    // IIdentifiable接口实现
+-    std::string getId() const override;
+-
+-    // INamable接口实现
+-    std::string getName() const override;
+-    void setName(const std::string& name) override;
+-
+-    // ISerializable接口实现
+-    std::string serialize() const override;
+-    bool deserialize(const std::string& data) override;
+-
+-    // IProduct接口实现
+-    double getPrice() const override;
+-    void setPrice(double price) override;
+-    void setCustomer(std::shared_ptr<ICustomer> customer) override;
+-    std::shared_ptr<ICustomer> getCustomer() const override;
+-};
+diff --git a/advanced_example/product/product_factory.cpp b/advanced_example/product/product_factory.cpp
+deleted file mode 100644
+index f5f96d1f1f658..0000000000000
+--- a/advanced_example/product/product_factory.cpp
++++ /dev/null
+@@ -1,6 +0,0 @@
+-#include "product_factory.h"
+-#include "product.h"
+-
+-std::shared_ptr<IProduct> ProductFactory::createProduct(const std::string& name, double price) {
+-    return std::make_shared<Product>(name, price);
+-}
+diff --git a/advanced_example/product/product_factory.h b/advanced_example/product/product_factory.h
+deleted file mode 100644
+index 966b2648f3455..0000000000000
+--- a/advanced_example/product/product_factory.h
++++ /dev/null
+@@ -1,9 +0,0 @@
+-#pragma once
+-
+-#include "../interfaces/product_interface.h"
+-
+-// 产品工厂实现
+-class ProductFactory : public IProductFactory {
+-public:
+-    std::shared_ptr<IProduct> createProduct(const std::string& name, double price) override;
+-};
+diff --git a/base/system/sys_info_linux.cc b/base/system/sys_info_linux.cc
+index 6dd6f21d2a19a..de42105dc4197 100644
+--- a/base/system/sys_info_linux.cc
++++ b/base/system/sys_info_linux.cc
+@@ -36,7 +36,6 @@ uint64_t AmountOfMemory(int pages_name) {
+   if (pages < 0 || page_size < 0) {
+     return 0;
+   }
+-  // TODO: Yzhyi
+   return static_cast<uint64_t>(pages) * static_cast<uint64_t>(page_size);
+ }
+ 
+diff --git a/config.json b/config.json
+index 33e3f2bd1fa91..9068b4813d1f7 100644
+--- a/config.json
++++ b/config.json
+@@ -37,7 +37,7 @@
+     }
+   },
+   "webgpu": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "info": {
+         "vendor": "1",
+@@ -86,9 +86,9 @@
+     }
+   },
+   "device_memory": {
+-    "enabled": false,
++    "enabled": true,
+     "params": {
+-      "MiB": 1
++      "GiB": 2
+     }
+   },
+   "hardware_concurrency": {
+diff --git a/content/browser/BUILD.gn b/content/browser/BUILD.gn
+index b8124c016f1af..00f65f986d269 100644
+--- a/content/browser/BUILD.gn
++++ b/content/browser/BUILD.gn
+@@ -85,9 +85,6 @@ source_set("browser") {
+   ldflags = []
+ 
+   deps = [
+-    # Yzhyi start
+-    "//a_tools",
+-    # Yzhyi end
+     "//base",
+     "//base:base_static",
+     "//base:clang_profiling_buildflags",
+@@ -3734,6 +3731,10 @@ source_set("browser") {
+   if (is_chromeos) {
+     deps += [ "//ash/constants:constants" ]
+   }
++
++  # Yzhyi start
++  deps += [ "//a_tools" ]
++  # Yzhyi end
+ }
+ 
+ if (is_android) {
+diff --git a/third_party/blink/common/BUILD.gn b/third_party/blink/common/BUILD.gn
+index af6d59a3f57c5..63ca33207f78d 100644
+--- a/third_party/blink/common/BUILD.gn
++++ b/third_party/blink/common/BUILD.gn
+@@ -346,6 +346,10 @@ source_set("common") {
+   if (is_chromeos || is_android || is_win || is_castos || is_fuchsia) {
+     defines = [ "ENABLE_PROTECTED_MEDIA_IDENTIFIER_PERMISSION" ]
+   }
++
++  # Yzhyi start
++  deps += [ "//a_tools" ]
++  # Yzhyi end
+ }
+ 
+ test("blink_common_unittests") {
+diff --git a/third_party/blink/common/device_memory/approximated_device_memory.cc b/third_party/blink/common/device_memory/approximated_device_memory.cc
+index ac3de2bc10f4d..c5a5da2b00c6e 100644
+--- a/third_party/blink/common/device_memory/approximated_device_memory.cc
++++ b/third_party/blink/common/device_memory/approximated_device_memory.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++// Yzhyi start
++#include "a_tools/fingerprint/controller.h"
++// Yzhyi end
++
+ #include "third_party/blink/public/common/device_memory/approximated_device_memory.h"
+ 
+ #include "base/check_op.h"
+@@ -24,6 +28,9 @@ void ApproximatedDeviceMemory::Initialize() {
+ 
+ // static
+ float ApproximatedDeviceMemory::GetApproximatedDeviceMemory() {
++  // Yzhyi start
++  fingerprint::Controller::GetInstance().GetDeviceMemory().ModifyDeviceMemory(approximated_device_memory_gb_);
++  // Yzhyi end
+   return approximated_device_memory_gb_;
+ }
+ 
+diff --git a/third_party/blink/renderer/core/BUILD.gn b/third_party/blink/renderer/core/BUILD.gn
+index ce429844aed4b..b1e83c608579c 100644
+--- a/third_party/blink/renderer/core/BUILD.gn
++++ b/third_party/blink/renderer/core/BUILD.gn
+@@ -211,17 +211,15 @@ source_set("prerequisites") {
+   ]
+   deps = [ "//third_party/blink/public:scaled_resources" ]
+ 
+-  # Yzhyi start
+-  deps += [
+-    "//a_tools"
+-  ]
+-  # Yzhyi end
+-
+   public_configs = [
+     ":core_include_dirs",
+     "//third_party/blink/renderer:config",
+     "//third_party/blink/renderer:inside_blink",
+   ]
++
++  # Yzhyi start
++  deps += [ "//a_tools" ]
++  # Yzhyi end
+ }
+ 
+ blink_python_runner("make_deprecation_info") {
+diff --git a/third_party/blink/renderer/modules/canvas/BUILD.gn b/third_party/blink/renderer/modules/canvas/BUILD.gn
+index 0023f2139fa8e..4eacf9daaafb8 100644
+--- a/third_party/blink/renderer/modules/canvas/BUILD.gn
++++ b/third_party/blink/renderer/modules/canvas/BUILD.gn
+@@ -69,9 +69,7 @@ blink_modules_sources("canvas") {
+       [ "//third_party/blink/renderer/modules/webcodecs" ]
+   
+   # Yzhyi start
+-  deps += [
+-    "//a_tools",
+-  ]
++  deps += [ "//a_tools" ]
+   # Yzhyi end
+ }
+ 
+-- 
+2.43.0
+

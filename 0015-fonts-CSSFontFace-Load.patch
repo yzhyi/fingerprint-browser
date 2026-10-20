@@ -1,0 +1,99 @@
+From c405c7b02c65bfa4468156624d258b61f16d2a21 Mon Sep 17 00:00:00 2001
+From: yuzhengyi02 <yuzhengyi02@meituan.com>
+Date: Wed, 10 Sep 2025 19:42:26 +0800
+Subject: [PATCH 15/68] fonts: CSSFontFace::Load
+
+---
+ a_tools/fingerprint/controller.h                     |  9 +++++++++
+ config.json                                          |  4 ++--
+ third_party/blink/renderer/core/css/css_font_face.cc | 11 ++++++++++-
+ 3 files changed, 21 insertions(+), 3 deletions(-)
+
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index 0280e835aa840..bf6557fba4a29 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -34,6 +34,9 @@ public:
+   bool ParseFonts();
+ 
+   // canvas
++  bool CanvasEnable() {
++    return m_canvas_enable;
++  }
+   void ModifyCanvasWidth(unsigned &value) {
+     value += static_cast<unsigned>(m_canvas_width);
+   }
+@@ -54,6 +57,9 @@ public:
+   }
+ 
+   // webgl
++  bool WebGLEnable() {
++    return m_webgl_enable;
++  }
+   std::string GetWebGLUnmaskedVendorWebgl() {
+     return m_webgl_unmasked_vendor_webgl;
+   }
+@@ -77,6 +83,9 @@ public:
+   }
+ 
+   // fonts
++  bool FontsEnable() {
++    return m_fonts_enable;
++  }
+   int GetFontsNoise() {
+     return RandomInt(static_cast<int>(m_fonts_noise_min),
+                      static_cast<int>(m_fonts_noise_max));
+diff --git a/config.json b/config.json
+index 011816ef2517e..88394d2d33b2d 100644
+--- a/config.json
++++ b/config.json
+@@ -1,6 +1,6 @@
+ {
+   "canvas": {
+-    "enable": true,
++    "enable": false,
+     "params": {
+       "width": 0,
+       "height": 0,
+@@ -11,7 +11,7 @@
+     }
+   },
+   "webgl": {
+-    "enable": true,
++    "enable": false,
+     "params": {
+       "unmasked_vendor_webgl": "Google Inc. (NVIDIA)",
+       "unmasked_renderer_webgl": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11-30.0.14.9676)"
+diff --git a/third_party/blink/renderer/core/css/css_font_face.cc b/third_party/blink/renderer/core/css/css_font_face.cc
+index 46bf412b4a8a7..831231bef212e 100644
+--- a/third_party/blink/renderer/core/css/css_font_face.cc
++++ b/third_party/blink/renderer/core/css/css_font_face.cc
+@@ -23,6 +23,10 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++// Yzhyi start
++#include "a_tools/fingerprint/controller.h"
++// Yzhyi end
++
+ #include "third_party/blink/renderer/core/css/css_font_face.h"
+ 
+ #include <algorithm>
+@@ -248,8 +252,13 @@ void CSSFontFace::Load(const FontDescription& font_description) {
+     if (source->IsValid()) {
+       if (source->IsLocalNonBlocking()) {
+         if (source->IsLocalFontAvailable(font_description)) {
++          // Yzhyi start
++          if (fingerprint::Controller::GetInstance().FontsEnable() &&  fingerprint::Controller::RandomInt(0, 9) < 2) {
++            SetLoadStatus(FontFace::kError); // TODO: Yzhyi set this can pass creepjs
++            return;
++          }
++          // Yzhyi end
+           SetLoadStatus(FontFace::kLoaded);
+-          // SetLoadStatus(FontFace::kError); // NOTE: set this can pass creepjs
+           return;
+         }
+       } else {
+-- 
+2.43.0
+

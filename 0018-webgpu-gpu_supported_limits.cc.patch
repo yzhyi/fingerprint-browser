@@ -1,0 +1,140 @@
+From 97d8cc1fb0467f53883bb28fdacd53d2785f1649 Mon Sep 17 00:00:00 2001
+From: yuzhengyi02 <yuzhengyi02@meituan.com>
+Date: Mon, 15 Sep 2025 17:26:09 +0800
+Subject: [PATCH 18/68] webgpu: gpu_supported_limits.cc
+
+---
+ a_tools/fingerprint/controller.cc              | 12 ++++++++++++
+ a_tools/fingerprint/controller.h               | 18 +++++++++++++++++-
+ config.json                                    |  4 ++++
+ .../modules/webgpu/gpu_supported_limits.cc     |  8 ++++++++
+ 4 files changed, 41 insertions(+), 1 deletion(-)
+
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index db2aa2e78f0da..a46ec838cf7c0 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -195,6 +195,18 @@ bool Controller::ParseWebGPU() {
+             m_webgpu_is_fallback_adapter = webgpu_is_fallback_adapter.value();
+           }
+         }
++        base::DictValue* webgpu_params_limits_dict = webgpu_params_dict->FindDict("limits");
++        if (webgpu_params_limits_dict) {
++          for (auto it = webgpu_params_limits_dict->begin(); it != webgpu_params_limits_dict->end(); ++it) {
++            // std::cout << it->first << ": " << it->second << ' ' << it->second.type() << std::endl;
++            if (it->second.is_int()) {
++              m_webgpu_limits[it->first] = it->second.GetInt();
++            }
++            else if (it->second.is_double()) {
++              m_webgpu_limits[it->first] = it->second.GetDouble();
++            }
++          }
++        }
+       }
+     }
+     return true;
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index f891434315b26..2f5142057b55c 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -1,10 +1,12 @@
+ # pragma once
+ 
++#include <cstdint>
+ #include <iostream>
+ #include <string>
+ #include <memory>
+ #include <mutex>
+ #include <random>
++#include <unordered_map>
+ #include "base/command_line.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ #include "base/values.h"
+@@ -39,7 +41,7 @@ public:
+   }
+   void ModifyCanvasWidth(unsigned &value) {
+     if (m_canvas_enable) {
+-        value += static_cast<unsigned>(m_canvas_width);
++      value += static_cast<unsigned>(m_canvas_width);
+     }
+   }
+   void ModifyCanvasHeight(unsigned &value) {
+@@ -149,6 +151,18 @@ public:
+       is_fallback_adapter = m_webgpu_is_fallback_adapter;
+     }
+   }
++  void ModifyWebGPULimits(String name, uint32_t &value) {
++    std::string key = name.Ascii();
++    if (m_webgpu_limits.contains(key)) {
++      value = m_webgpu_limits[key];
++    }
++  }
++  void ModifyWebGPULimits(String name, uint64_t &value) {
++    std::string key = name.Ascii();
++    if (m_webgpu_limits.contains(key)) {
++      value = m_webgpu_limits[key];
++    }
++  }
+ 
+ private:
+   Controller();
+@@ -193,6 +207,8 @@ private:
+   std::string m_webgpu_description;
+   bool m_webgpu_is_fallback_adapter_initialized{false};
+   bool m_webgpu_is_fallback_adapter{false};
++  // limits
++  std::unordered_map<std::string, uint64_t> m_webgpu_limits;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/config.json b/config.json
+index 200abda886346..b6b72b086af38 100644
+--- a/config.json
++++ b/config.json
+@@ -44,6 +44,10 @@
+         "device": "3",
+         "description": "4",
+         "is_fallback_adapter": false
++      },
++      "limits": {
++        "maxTextureDimension1D": 1,
++        "maxBufferSize": 2147483648
+       }
+     }
+   }
+diff --git a/third_party/blink/renderer/modules/webgpu/gpu_supported_limits.cc b/third_party/blink/renderer/modules/webgpu/gpu_supported_limits.cc
+index 1fcc7365eb748..72a8d857165b9 100644
+--- a/third_party/blink/renderer/modules/webgpu/gpu_supported_limits.cc
++++ b/third_party/blink/renderer/modules/webgpu/gpu_supported_limits.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++// Yzhyi start
++#include "a_tools/fingerprint/controller.h"
++// Yzhyi end
++
+ #include "third_party/blink/renderer/modules/webgpu/gpu_supported_limits.h"
+ 
+ #include <algorithm>
+@@ -124,13 +128,17 @@ bool GPUSupportedLimits::Populate(
+   return true;
+ }
+ 
++// Yzhyi start
+ #define X(name)                                                              \
+   decltype(GPUSupportedLimits::ComboLimits::name) GPUSupportedLimits::name() \
+       const {                                                                \
++    fingerprint::Controller::GetInstance().ModifyWebGPULimits(String(#name), \
++    const_cast<std::remove_const_t<decltype(limits_.name)>&>(limits_.name)); \
+     return limits_.name;                                                     \
+   }
+ SUPPORTED_LIMITS(X)
+ #undef X
++// Yzhyi end
+ 
+ // GPUSupportedLimits::ComboLimits
+ 
+-- 
+2.43.0
+

@@ -1,0 +1,669 @@
+From ed5388424b952dd78b48d0f52b24468a450420dd Mon Sep 17 00:00:00 2001
+From: yuzhengyi02 <yuzhengyi02@meituan.com>
+Date: Thu, 18 Sep 2025 14:26:30 +0800
+Subject: [PATCH 23/68] modify canvas
+
+---
+ a_tools/BUILD.gn                              |  2 +
+ a_tools/fingerprint/canvas/canvas.cc          | 98 +++++++++++++++++++
+ a_tools/fingerprint/canvas/canvas.h           | 47 +++++++++
+ a_tools/fingerprint/controller.cc             | 65 +++---------
+ a_tools/fingerprint/controller.h              | 78 ++-------------
+ a_tools/fingerprint/fonts/fonts.cc            |  7 +-
+ a_tools/fingerprint/fonts/fonts.h             |  1 +
+ a_tools/fingerprint/webgl/webgl.cc            | 11 ++-
+ a_tools/fingerprint/webgl/webgl.h             |  4 +-
+ a_tools/fingerprint/webgpu/webgpu.cc          | 16 +--
+ a_tools/fingerprint/webgpu/webgpu.h           |  1 +
+ config.json                                   | 15 +--
+ .../renderer_host/render_process_host_impl.cc |  3 +-
+ .../core/html/canvas/html_canvas_element.cc   |  8 +-
+ .../canvas2d/canvas_2d_recorder_context.cc    |  8 +-
+ .../webgl/webgl_rendering_context_base.cc     |  8 +-
+ 16 files changed, 215 insertions(+), 157 deletions(-)
+ create mode 100644 a_tools/fingerprint/canvas/canvas.cc
+ create mode 100644 a_tools/fingerprint/canvas/canvas.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index 31fd40504ea65..7b4ae08f8dae4 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -12,6 +12,8 @@ static_library("a_tools") {
+     "fingerprint/controller.cc",
+     "fingerprint/utils/random.h",
+     "fingerprint/utils/random.cc",
++    "fingerprint/canvas/canvas.h",
++    "fingerprint/canvas/canvas.cc",
+     "fingerprint/webgl/webgl.h",
+     "fingerprint/webgl/webgl.cc",
+     "fingerprint/fonts/fonts.h",
+diff --git a/a_tools/fingerprint/canvas/canvas.cc b/a_tools/fingerprint/canvas/canvas.cc
+new file mode 100644
+index 0000000000000..b03b60102f6b7
+--- /dev/null
++++ b/a_tools/fingerprint/canvas/canvas.cc
+@@ -0,0 +1,98 @@
++#include <iostream>
++#include "canvas.h"
++
++namespace fingerprint {
++
++Canvas::Canvas(absl::optional<base::Value> &json_value) {
++  ParseJson(json_value);
++}
++
++Canvas::~Canvas() = default;
++
++bool Canvas::ParseJson(absl::optional<base::Value> &json_value) {
++  if (!json_value) return false;
++  base::DictValue* dict = json_value->GetDict().FindDict("canvas");
++  if (dict) {
++    std::optional<bool> enabled = dict->FindBool("enabled");
++    if (enabled.has_value() && enabled.value()) {
++      m_enabled = enabled.value();
++      base::DictValue* params_dict = dict->FindDict("params");
++      if (params_dict) {
++        std::optional<double> width = params_dict->FindDouble("width");
++        if (width.has_value()) {
++          m_width = width.value();
++        }
++        std::optional<double> height = params_dict->FindDouble("height");
++        if (height.has_value()) {
++          m_height = height.value();
++        }
++        std::optional<double> rect_x = params_dict->FindDouble("rect_x");
++        if (rect_x.has_value()) {
++          m_rect_x = rect_x.value();
++        }
++        std::optional<double> rect_y = params_dict->FindDouble("rect_y");
++        if (rect_y.has_value()) {
++          m_rect_y = rect_y.value();
++        }
++        std::optional<double> rect_width = params_dict->FindDouble("rect_width");
++        if (rect_width.has_value()) {
++          m_rect_width = rect_width.value();
++        }
++        std::optional<double> rect_height = params_dict->FindDouble("rect_height");
++        if (rect_height.has_value()) {
++          m_rect_height = rect_height.value();
++        }
++        std::optional<bool> modify_data_url_enable = params_dict->FindBool("modify_data_url");
++        if (modify_data_url_enable.has_value() && modify_data_url_enable.value()) {
++          m_modify_data_url_enable = modify_data_url_enable.value();
++        }
++      }
++    }
++    return true;
++  }
++  return false;
++}
++
++void Canvas::ModifyWidth(unsigned &value) {
++  if (m_enabled) {
++    value += static_cast<unsigned>(m_width);
++  }
++}
++
++void Canvas::ModifyHeight(unsigned &value) {
++  if (m_enabled) {
++    value += static_cast<unsigned>(m_height);
++  }
++}
++
++void Canvas::ModifyRectX(double &value) {
++  if (m_enabled) {
++    value += static_cast<double>(m_rect_x);
++  }
++}
++
++void Canvas::ModifyRectY(double &value) {
++  if (m_enabled) {
++    value += static_cast<double>(m_rect_y);
++  }
++}
++
++void Canvas::ModifyRectWidth(double &value) {
++  if (m_enabled) {
++    value += static_cast<double>(m_rect_width);
++  }
++}
++
++void Canvas::ModifyRectHeight(double &value) {
++  if (m_enabled) {
++    value += static_cast<double>(m_rect_height);
++  }
++}
++
++void Canvas::ModifyDataURL(String &data_url) {
++  if (m_enabled && m_modify_data_url_enable) {
++    data_url = data_url + String(" ");
++  }
++}
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/canvas/canvas.h b/a_tools/fingerprint/canvas/canvas.h
+new file mode 100644
+index 0000000000000..c16884db9f724
+--- /dev/null
++++ b/a_tools/fingerprint/canvas/canvas.h
+@@ -0,0 +1,47 @@
++# pragma once
++
++#include <string>
++#include <unordered_map>
++
++#include "base/values.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++
++namespace fingerprint {
++
++class Controller;
++
++class Canvas {
++public:
++  friend Controller;
++  Canvas(const Canvas&) = delete;
++  Canvas& operator=(const Canvas&) = delete;
++
++private:
++  explicit Canvas(absl::optional<base::Value> &json_value);
++  ~Canvas();
++  
++public:
++  bool ParseJson(absl::optional<base::Value> &json_value);
++  bool Enabled() { return m_enabled; }
++
++  void ModifyWidth(unsigned &value);
++  void ModifyHeight(unsigned &value);
++  void ModifyRectX(double &value);
++  void ModifyRectY(double &value);
++  void ModifyRectWidth(double &value);
++  void ModifyRectHeight(double &value);
++  void ModifyDataURL(String &data_url);
++
++private:
++  bool m_enabled{false};
++  double m_width{0};
++  double m_height{0};
++  double m_rect_x{0};
++  double m_rect_y{0};
++  double m_rect_width{0};
++  double m_rect_height{0};
++  bool m_modify_data_url_enable{false};
++};
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index 49b45290c1f06..2cc5960adacc3 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -1,9 +1,5 @@
+-#include <iostream>
+ #include "a_tools/fingerprint/controller.h"
+-#include "content/public/common/content_switches.h"
+ #include "base/json/json_reader.h"
+-#include "third_party/libc++/src/include/__filesystem/path.h"
+-#include "base/files/file_util.h"
+ #include "base/logging.h"
+ 
+ namespace fingerprint {
+@@ -15,16 +11,22 @@ Controller::Controller()
+     m_enabled(m_command_line->HasSwitch(kFingerprint)),
+     m_json_str(m_enabled ? m_command_line->GetSwitchValueASCII(kFingerprint) : std::string{}),
+     m_json_value(m_enabled ? base::JSONReader::Read(m_json_str) : absl::nullopt),
++    m_canvas(m_json_value),
+     m_webgl(m_json_value),
+     m_fonts(m_json_value),
+     m_webgpu(m_json_value)
+-{
+-  if (m_enabled) {
+-    ParseJson();
+-  }
+-}
++{}
++
++Controller::~Controller() = default;
+ 
+-Controller::~Controller() {}
++CONTENT_EXPORT Controller& Controller::GetInstance() {
++  static std::once_flag flag;
++  static Controller* controller = nullptr;
++  std::call_once(flag, []() {
++    controller = new Controller();
++  });
++  return *controller;
++}
+ 
+ bool Controller::AppendCommandLine(base::CommandLine* command_line) {
+   if (!m_json_str.empty()) {
+@@ -38,47 +40,4 @@ void Controller::PrintJson() {
+   LOG(INFO) << "Controller::PrintJson: " << m_json_str;
+ }
+ 
+-void Controller::ParseJson() {
+-  ParseCanvas();
+-}
+-
+-bool Controller::ParseCanvas() {
+-  base::DictValue* canvas_dict = m_json_value->GetDict().FindDict("canvas");
+-  if (canvas_dict) {
+-    std::optional<bool> canvas_enable = canvas_dict->FindBool("enable");
+-    if (canvas_enable.has_value() && canvas_enable.value()) {
+-      m_canvas_enable = canvas_enable.value();
+-      base::DictValue* params_dict = canvas_dict->FindDict("params");
+-      if (params_dict) {
+-        std::optional<double> canvas_width = params_dict->FindDouble("width");
+-        if (canvas_width.has_value()) {
+-          m_canvas_width = canvas_width.value();
+-        }
+-        std::optional<double> canvas_height = params_dict->FindDouble("height");
+-        if (canvas_height.has_value()) {
+-          m_canvas_height = canvas_height.value();
+-        }
+-        std::optional<double> canvas_rect_x = params_dict->FindDouble("rect_x");
+-        if (canvas_rect_x.has_value()) {
+-          m_canvas_rect_x = canvas_rect_x.value();
+-        }
+-        std::optional<double> canvas_rect_y = params_dict->FindDouble("rect_y");
+-        if (canvas_rect_y.has_value()) {
+-          m_canvas_rect_y = canvas_rect_y.value();
+-        }
+-        std::optional<double> canvas_rect_width = params_dict->FindDouble("rect_width");
+-        if (canvas_rect_width.has_value()) {
+-          m_canvas_rect_width = canvas_rect_width.value();
+-        }
+-        std::optional<double> canvas_rect_height = params_dict->FindDouble("rect_height");
+-        if (canvas_rect_height.has_value()) {
+-          m_canvas_rect_height = canvas_rect_height.value();
+-        }
+-      }
+-    }
+-    return true;
+-  }
+-  return false;
+-}
+-
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index 0b8c20624d94e..722ede8251a1b 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -1,79 +1,31 @@
+ # pragma once
+ 
+-#include <cstdint>
+ #include <iostream>
+ #include <string>
+-#include <memory>
+-#include <mutex>
+-#include <random>
+-#include <unordered_map>
++
+ #include "base/command_line.h"
+-#include "third_party/abseil-cpp/absl/types/optional.h"
+-#include "base/values.h"
++#include "base/memory/raw_ptr.h"
+ #include "content/common/content_export.h"
+-#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+ 
+ #include "a_tools/fingerprint/utils/random.h"
++#include "a_tools/fingerprint/canvas/canvas.h"
+ #include "a_tools/fingerprint/webgl/webgl.h"
+ #include "a_tools/fingerprint/fonts/fonts.h"
+ #include "a_tools/fingerprint/webgpu/webgpu.h"
+ 
+ namespace fingerprint {
+ 
+-CONTENT_EXPORT extern const char kFingerprint[];
+-
+ class Controller {
+ public:
+-  __attribute__((visibility("default")))
+-  static Controller& GetInstance() {
+-    static std::once_flag flag;
+-    static Controller* controller = nullptr;
+-    std::call_once(flag, []() {
+-      controller = new Controller();
+-    });
+-    return *controller;
+-  }
++  Controller(const Controller&) = delete;
++  Controller& operator=(const Controller&) = delete;
++
++  CONTENT_EXPORT static Controller& GetInstance();
+ 
+   bool AppendCommandLine(base::CommandLine* command_line);
+   void PrintJson();
+-  void ParseJson();
+-
+-  // canvas
+-  bool ParseCanvas();
+-  bool CanvasEnable() {
+-    return m_canvas_enable;
+-  }
+-  void ModifyCanvasWidth(unsigned &value) {
+-    if (m_canvas_enable) {
+-      value += static_cast<unsigned>(m_canvas_width);
+-    }
+-  }
+-  void ModifyCanvasHeight(unsigned &value) {
+-    if (m_canvas_enable) {
+-      value += static_cast<unsigned>(m_canvas_height);
+-    }
+-  }
+-  void ModifyCanvasRectX(double &value) {
+-    if (m_canvas_enable) {
+-      value += static_cast<double>(m_canvas_rect_x);
+-    }
+-  }
+-  void ModifyCanvasRectY(double &value) {
+-    if (m_canvas_enable) {
+-      value += static_cast<double>(m_canvas_rect_y);
+-    }
+-  }
+-  void ModifyCanvasRectWidth(double &value) {
+-    if (m_canvas_enable) {
+-      value += static_cast<double>(m_canvas_rect_width);
+-    }
+-  }
+-  void ModifyCanvasRectHeight(double &value) {
+-    if (m_canvas_enable) {
+-      value += static_cast<double>(m_canvas_rect_height);
+-    }
+-  }
+ 
++  Canvas& GetCanvas() { return m_canvas; }
+   WebGL& GetWebGL() { return m_webgl; }
+   Fonts& GetFonts() { return m_fonts; }
+   WebGPU& GetWebGPU() { return m_webgpu; }
+@@ -81,23 +33,13 @@ public:
+ private:
+   Controller();
+   ~Controller();
+-  Controller(const Controller&) = delete;
+-  Controller& operator=(const Controller&) = delete;
+ 
+-  std::unique_ptr<const base::CommandLine> m_command_line;
++  const raw_ptr<const base::CommandLine> m_command_line;
+   bool m_enabled;
+   std::string m_json_str;
+   absl::optional<base::Value> m_json_value;
+ 
+-  // canvas
+-  bool m_canvas_enable{false};
+-  double m_canvas_width{0};
+-  double m_canvas_height{0};
+-  double m_canvas_rect_x{0};
+-  double m_canvas_rect_y{0};
+-  double m_canvas_rect_width{0};
+-  double m_canvas_rect_height{0};
+-
++  Canvas m_canvas;
+   WebGL m_webgl;
+   Fonts m_fonts;
+   WebGPU m_webgpu;
+diff --git a/a_tools/fingerprint/fonts/fonts.cc b/a_tools/fingerprint/fonts/fonts.cc
+index 9ef428eeb979d..144f312d56123 100644
+--- a/a_tools/fingerprint/fonts/fonts.cc
++++ b/a_tools/fingerprint/fonts/fonts.cc
+@@ -34,8 +34,11 @@ bool Fonts::ParseJson(absl::optional<base::Value> &json_value) {
+ }
+ 
+ int Fonts::GetNoise() {
+-  return RandomInt(static_cast<int>(m_noise_min),
+-                    static_cast<int>(m_noise_max));
++  if (m_enabled) {
++    return RandomInt(static_cast<int>(m_noise_min),
++                      static_cast<int>(m_noise_max));
++  }
++  return 0;
+ }
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/fonts/fonts.h b/a_tools/fingerprint/fonts/fonts.h
+index f87b77b8f4da8..351620721f5da 100644
+--- a/a_tools/fingerprint/fonts/fonts.h
++++ b/a_tools/fingerprint/fonts/fonts.h
+@@ -2,6 +2,7 @@
+ 
+ #include <string>
+ #include <unordered_map>
++
+ #include "base/values.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+diff --git a/a_tools/fingerprint/webgl/webgl.cc b/a_tools/fingerprint/webgl/webgl.cc
+index cbd75e95f0175..bdba8fab7d499 100644
+--- a/a_tools/fingerprint/webgl/webgl.cc
++++ b/a_tools/fingerprint/webgl/webgl.cc
+@@ -1,3 +1,5 @@
++#include <random>
++
+ #include "webgl.h"
+ 
+ namespace fingerprint {
+@@ -72,8 +74,13 @@ std::string WebGL::GetUnmaskedRendererWebgl() {
+   return "";
+ }
+ 
+-bool WebGL::ExtensionsRandomShuffleEnable() {
+-  return m_extensions_random_shuffle_enable;
++void WebGL::RandomShuffleExtensions(Vector<String> &extensions) {
++  if (m_enabled && m_extensions_random_shuffle_enable) {
++    const int fixed_seed = 123;
++    static std::mt19937 gen(fixed_seed);
++    // static std::mt19937 gen(std::random_device{}());
++    std::shuffle(extensions.begin(), extensions.end(), gen);
++  }
+ }
+ 
+ void WebGL::ModifyPixelsX(int &value) {
+diff --git a/a_tools/fingerprint/webgl/webgl.h b/a_tools/fingerprint/webgl/webgl.h
+index 7034befdeb97b..2e7583f653357 100644
+--- a/a_tools/fingerprint/webgl/webgl.h
++++ b/a_tools/fingerprint/webgl/webgl.h
+@@ -2,8 +2,10 @@
+ 
+ #include <string>
+ #include <unordered_map>
++
+ #include "base/values.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+ 
+ namespace fingerprint {
+ 
+@@ -25,7 +27,7 @@ public:
+ 
+   std::string GetUnmaskedVendorWebgl();
+   std::string GetUnmaskedRendererWebgl();
+-  bool ExtensionsRandomShuffleEnable();
++  void RandomShuffleExtensions(Vector<String> &extensions);
+   void ModifyPixelsX(int &value);
+   void ModifyPixelsY(int &value);
+   void ModifyPixelsWidth(int &value);
+diff --git a/a_tools/fingerprint/webgpu/webgpu.cc b/a_tools/fingerprint/webgpu/webgpu.cc
+index d2ec65e24db60..b559df37e33ad 100644
+--- a/a_tools/fingerprint/webgpu/webgpu.cc
++++ b/a_tools/fingerprint/webgpu/webgpu.cc
+@@ -98,16 +98,20 @@ void WebGPU::ModifyIsFallbackAdapter(bool &is_fallback_adapter) {
+ }
+ 
+ void WebGPU::ModifyLimits(String name, uint32_t &value) {
+-  std::string key = name.Ascii();
+-  if (m_limits.contains(key)) {
+-    value = m_limits[key];
++  if (m_enabled) {
++    std::string key = name.Ascii();
++    if (m_limits.contains(key)) {
++      value = m_limits[key];
++    }
+   }
+ }
+ 
+ void WebGPU::ModifyLimits(String name, uint64_t &value) {
+-  std::string key = name.Ascii();
+-  if (m_limits.contains(key)) {
+-    value = m_limits[key];
++  if (m_enabled) {
++    std::string key = name.Ascii();
++    if (m_limits.contains(key)) {
++      value = m_limits[key];
++    }
+   }
+ }
+ 
+diff --git a/a_tools/fingerprint/webgpu/webgpu.h b/a_tools/fingerprint/webgpu/webgpu.h
+index 3001304415b82..1aff6c021d6f3 100644
+--- a/a_tools/fingerprint/webgpu/webgpu.h
++++ b/a_tools/fingerprint/webgpu/webgpu.h
+@@ -2,6 +2,7 @@
+ 
+ #include <string>
+ #include <unordered_map>
++
+ #include "base/values.h"
+ #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+diff --git a/config.json b/config.json
+index 7d2f0da556ca7..1fc57cb9ef84e 100644
+--- a/config.json
++++ b/config.json
+@@ -1,17 +1,18 @@
+ {
+   "canvas": {
+-    "enable": false,
++    "enabled": true,
+     "params": {
+-      "width": 1,
++      "width": 0,
+       "height": 0,
+       "rect_x": 0,
+       "rect_y": 0,
+       "rect_width": 0,
+-      "rect_height": 0
++      "rect_height": 0,
++      "modify_data_url": true
+     }
+   },
+   "webgl": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "#unmasked_vendor_webgl": "Google Inc. (Apple)",
+       "#unmasked_renderer_webgl": "ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Pro, Unspecified Version)",
+@@ -19,7 +20,7 @@
+       "#unmasked_renderer_webgl": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11-30.0.14.9676)"
+     },
+     "extensions": {
+-      "random_shuffle": true
++      "random_shuffle": false
+     },
+     "pixels": {
+       "x": 0,
+@@ -29,14 +30,14 @@
+     }
+   },
+   "fonts": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "noise_min": 0,
+       "noise_max": 1
+     }
+   },
+   "webgpu": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "info": {
+         "vendor": "1",
+diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
+index fba5933c4a159..0d57c68e62830 100644
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -3365,8 +3365,7 @@ static void AppendCompositorCommandLineFlags(base::CommandLine* command_line) {
+ void RenderProcessHostImpl::AppendRendererCommandLine(
+     ::base::CommandLine* command_line) {
+   // Yzhyi start
+-  fingerprint::Controller &controller = fingerprint::Controller::GetInstance();
+-  controller.AppendCommandLine(command_line);
++  fingerprint::Controller::GetInstance().AppendCommandLine(command_line);
+   // Yzhyi end
+ 
+   // Pass the process type first, so it shows first in process listings.
+diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+index 43c8e0a37fff1..7483ff388fd5d 100644
+--- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
++++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+@@ -535,7 +535,7 @@ void HTMLCanvasElement::setWidth(unsigned value,
+                                  ExceptionState& exception_state) {
+   if (SizeChangesAreAllowed(exception_state)) {
+     // Yzhyi start
+-    fingerprint::Controller::GetInstance().ModifyCanvasWidth(value);
++    fingerprint::Controller::GetInstance().GetCanvas().ModifyWidth(value);
+     // Yzhyi end
+     SetUnsignedIntegralAttribute(html_names::kWidthAttr, value,
+                                  kDefaultCanvasWidth);
+@@ -546,7 +546,7 @@ void HTMLCanvasElement::setHeight(unsigned value,
+                                   ExceptionState& exception_state) {
+   if (SizeChangesAreAllowed(exception_state)) {
+     // Yzhyi start
+-    fingerprint::Controller::GetInstance().ModifyCanvasHeight(value);
++    fingerprint::Controller::GetInstance().GetCanvas().ModifyHeight(value);
+     // Yzhyi end
+     SetUnsignedIntegralAttribute(html_names::kHeightAttr, value,
+                                  kDefaultCanvasHeight);
+@@ -1437,9 +1437,7 @@ String HTMLCanvasElement::ToDataURLInternal(const String& mime_type,
+           "CanvasReadback", "data_url", data_url.Utf8(), "noised", noised);
+     }
+     // Yzhyi start
+-    if (fingerprint::Controller::GetInstance().GetWebGL().Enabled()) {
+-      return data_url + String(" ");
+-    }
++    fingerprint::Controller::GetInstance().GetCanvas().ModifyDataURL(data_url);
+     // Yzhyi end
+     return data_url;
+   }
+diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
+index abfb53486900f..9e336f660cc3a 100644
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
+@@ -1917,10 +1917,10 @@ void Canvas2DRecorderContext::fillRect(double x,
+   }
+ 
+   // Yzhyi start
+-  fingerprint::Controller::GetInstance().ModifyCanvasRectX(x);
+-  fingerprint::Controller::GetInstance().ModifyCanvasRectY(y);
+-  fingerprint::Controller::GetInstance().ModifyCanvasRectWidth(width);
+-  fingerprint::Controller::GetInstance().ModifyCanvasRectHeight(height);
++  fingerprint::Controller::GetInstance().GetCanvas().ModifyRectX(x);
++  fingerprint::Controller::GetInstance().GetCanvas().ModifyRectY(y);
++  fingerprint::Controller::GetInstance().GetCanvas().ModifyRectWidth(width);
++  fingerprint::Controller::GetInstance().GetCanvas().ModifyRectHeight(height);
+   // Yzhyi end
+ 
+   // clamp to float to avoid float cast overflow when used as SkScalar
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index 934d4140097e2..d34effa48d93f 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -4418,13 +4418,7 @@ WebGLRenderingContextBase::getSupportedExtensions() {
+   }
+ 
+   // Yzhyi start
+-  if (fingerprint::Controller::GetInstance().GetWebGL().ExtensionsRandomShuffleEnable()) {
+-    // 使用当前时间作为随机数生成的种子
+-    unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+-    std::default_random_engine engine(seed);
+-    // 打乱result中的元素顺序
+-    std::shuffle(result.begin(), result.end(), engine);
+-  }
++  fingerprint::Controller::GetInstance().GetWebGL().RandomShuffleExtensions(result);
+   // TODO: Yzhyi can customize
+   // Yzhyi end
+ 
+-- 
+2.43.0
+

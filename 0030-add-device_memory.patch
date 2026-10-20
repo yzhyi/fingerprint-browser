@@ -1,0 +1,203 @@
+From 7d99aaeb4ebefb61fb597c4971f02b39eaeaa5eb Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Mon, 20 Oct 2025 15:36:18 +0800
+Subject: [PATCH 30/68] add device_memory
+
+---
+ a_tools/BUILD.gn                              |  2 ++
+ a_tools/fingerprint/controller.cc             |  3 +-
+ a_tools/fingerprint/controller.h              |  3 ++
+ .../device_memory/device_memory.cc            | 32 +++++++++++++++++++
+ .../fingerprint/device_memory/device_memory.h | 29 +++++++++++++++++
+ config.json                                   |  6 ++++
+ net/socket/ssl_client_socket_impl.cc          |  2 +-
+ .../approximated_device_memory.cc             |  7 ++++
+ 8 files changed, 82 insertions(+), 2 deletions(-)
+ create mode 100644 a_tools/fingerprint/device_memory/device_memory.cc
+ create mode 100644 a_tools/fingerprint/device_memory/device_memory.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index 4e742e46de01e..90c7f546735ad 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -28,6 +28,8 @@ static_library("a_tools") {
+     "fingerprint/webrtc/webrtc.cc",
+     "fingerprint/tls/tls.h",
+     "fingerprint/tls/tls.cc",
++    "fingerprint/device_memory/device_memory.h",
++    "fingerprint/device_memory/device_memory.cc",
+   ]
+ 
+   public_deps = [
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index 01fdb49296694..583314dd56d33 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -16,7 +16,8 @@ Controller::Controller()
+     m_fonts(m_json_value),
+     m_webgpu(m_json_value),
+     m_webrtc(m_json_value),
+-    m_tls(m_json_value)
++    m_tls(m_json_value),
++    m_device_memory(m_json_value)
+ {}
+ 
+ Controller::~Controller() = default;
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index 3b4f191185014..fe6058fe3e2ca 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -14,6 +14,7 @@
+ #include "a_tools/fingerprint/webgpu/webgpu.h"
+ #include "a_tools/fingerprint/webrtc/webrtc.h"
+ #include "a_tools/fingerprint/tls/tls.h"
++#include "a_tools/fingerprint/device_memory/device_memory.h"
+ 
+ namespace fingerprint {
+ 
+@@ -33,6 +34,7 @@ public:
+   WebGPU& GetWebGPU() { return m_webgpu; }
+   WebRTC& GetWebRTC() { return m_webrtc; }
+   TLS& GetTLS() { return m_tls; }
++  DeviceMemory& GetDeviceMemory() { return m_device_memory; }
+ 
+ private:
+   Controller();
+@@ -49,6 +51,7 @@ private:
+   WebGPU m_webgpu;
+   WebRTC m_webrtc;
+   TLS m_tls;
++  DeviceMemory m_device_memory;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/device_memory/device_memory.cc b/a_tools/fingerprint/device_memory/device_memory.cc
+new file mode 100644
+index 0000000000000..fd599d9522d41
+--- /dev/null
++++ b/a_tools/fingerprint/device_memory/device_memory.cc
+@@ -0,0 +1,32 @@
++#include "device_memory.h"
++#include "a_tools/fingerprint/utils/random.h"
++#include "a_tools/fingerprint/utils/parse_json.h"
++
++namespace fingerprint {
++
++DeviceMemory::DeviceMemory(const absl::optional<base::Value> &json_value) {
++  ParseJson(json_value);
++}
++
++DeviceMemory::~DeviceMemory() = default;
++
++bool DeviceMemory::ParseJson(const absl::optional<base::Value> &json_value) {
++  if (!json_value) return false;
++  if (const base::DictValue* dict = FindDict(json_value.value(), "device_memory"); dict) {
++    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
++      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        FindDouble(params_dict, "gb", m_gb);
++      }
++    }
++    return true;
++  }
++  return false;
++}
++
++void DeviceMemory::ModifyDeviceMemory(float &gb) {
++  if (m_enabled) {
++    gb = m_gb;
++  }
++}
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/device_memory/device_memory.h b/a_tools/fingerprint/device_memory/device_memory.h
+new file mode 100644
+index 0000000000000..671292ca8d015
+--- /dev/null
++++ b/a_tools/fingerprint/device_memory/device_memory.h
+@@ -0,0 +1,29 @@
++# pragma once
++
++#include "a_tools/fingerprint/base_fingerprint.h"
++#include "base/values.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++
++namespace fingerprint {
++
++class Controller;
++
++class DeviceMemory : public BaseFingerprint {
++public:
++  friend Controller;
++  DeviceMemory(const DeviceMemory&) = delete;
++  DeviceMemory& operator=(const DeviceMemory&) = delete;
++
++private:
++  explicit DeviceMemory(const absl::optional<base::Value> &json_value);
++  ~DeviceMemory() override;
++
++public:
++  bool ParseJson(const absl::optional<base::Value> &json_value) override;
++  void ModifyDeviceMemory(float &gb);
++
++private:
++  double m_gb{0};
++};
++
++} // namespace fingerprint
+diff --git a/config.json b/config.json
+index 8720f3e5a5622..3c39232d487fd 100644
+--- a/config.json
++++ b/config.json
+@@ -84,5 +84,11 @@
+         ]
+       }
+     }
++  },
++  "device_memory": {
++    "enabled": true,
++    "params": {
++      "gb": 2
++    }
+   }
+ }
+diff --git a/net/socket/ssl_client_socket_impl.cc b/net/socket/ssl_client_socket_impl.cc
+index 7f3cdb0a52a06..ca7e022db6cdc 100644
+--- a/net/socket/ssl_client_socket_impl.cc
++++ b/net/socket/ssl_client_socket_impl.cc
+@@ -770,7 +770,7 @@ int SSLClientSocketImpl::Init() {
+     }
+   }
+   // Yzhyi start
+-  fingerprint::Controller::GetInstance().GetTLS().ModifyCipherSuites(command);
++  // fingerprint::Controller::GetInstance().GetTLS().ModifyCipherSuites(command);
+   // Yzhyi end
+ 
+   if (!SSL_set_strict_cipher_list(ssl_.get(), command.c_str())) {
+diff --git a/third_party/blink/common/device_memory/approximated_device_memory.cc b/third_party/blink/common/device_memory/approximated_device_memory.cc
+index ac3de2bc10f4d..c5a5da2b00c6e 100644
+--- a/third_party/blink/common/device_memory/approximated_device_memory.cc
++++ b/third_party/blink/common/device_memory/approximated_device_memory.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++// Yzhyi start
++#include "a_tools/fingerprint/controller.h"
++// Yzhyi end
++
+ #include "third_party/blink/public/common/device_memory/approximated_device_memory.h"
+ 
+ #include "base/check_op.h"
+@@ -24,6 +28,9 @@ void ApproximatedDeviceMemory::Initialize() {
+ 
+ // static
+ float ApproximatedDeviceMemory::GetApproximatedDeviceMemory() {
++  // Yzhyi start
++  fingerprint::Controller::GetInstance().GetDeviceMemory().ModifyDeviceMemory(approximated_device_memory_gb_);
++  // Yzhyi end
+   return approximated_device_memory_gb_;
+ }
+ 
+-- 
+2.43.0
+

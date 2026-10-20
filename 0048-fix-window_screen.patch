@@ -1,0 +1,108 @@
+From 562cefbd99b0189a13aff20084a5bc2ee1df6367 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Tue, 28 Oct 2025 16:35:35 +0800
+Subject: [PATCH 48/68] fix window_screen
+
+---
+ config.json                                    |  4 ++--
+ .../blink/renderer/core/css/media_values.cc    | 14 ++++++++++++++
+ .../renderer/core/css/media_values_dynamic.cc  | 18 ------------------
+ 3 files changed, 16 insertions(+), 20 deletions(-)
+
+diff --git a/config.json b/config.json
+index 6a267a7b4708a..552c7c36881cb 100644
+--- a/config.json
++++ b/config.json
+@@ -122,7 +122,7 @@
+     }
+   },
+   "window_screen": {
+-    "enabled": false,
++    "enabled": true,
+     "params": {
+       "screen": {
+         "width": 2560,
+@@ -146,7 +146,7 @@
+     }
+   },
+   "touch": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "max_touch_points": 5
+     }
+diff --git a/third_party/blink/renderer/core/css/media_values.cc b/third_party/blink/renderer/core/css/media_values.cc
+index 7a200ccf9e08a..6d8dbb57876de 100644
+--- a/third_party/blink/renderer/core/css/media_values.cc
++++ b/third_party/blink/renderer/core/css/media_values.cc
+@@ -183,6 +183,13 @@ int MediaValues::CalculateDeviceWidth(LocalFrame* frame) {
+     device_width = static_cast<int>(
+         lroundf(device_width * screen_info.device_scale_factor));
+   }
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto& window_screen = fingerprint::Controller::GetInstance().GetWindowScreen(); window_screen.Enabled()) {
++    return window_screen.GetScreenWidth();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return device_width;
+ }
+ 
+@@ -201,6 +208,13 @@ int MediaValues::CalculateDeviceHeight(LocalFrame* frame) {
+     device_height = static_cast<int>(
+         lroundf(device_height * screen_info.device_scale_factor));
+   }
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto& window_screen = fingerprint::Controller::GetInstance().GetWindowScreen(); window_screen.Enabled()) {
++    return window_screen.GetScreenHeight();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return device_height;
+ }
+ 
+diff --git a/third_party/blink/renderer/core/css/media_values_dynamic.cc b/third_party/blink/renderer/core/css/media_values_dynamic.cc
+index 0955b3fc54f0d..b0caa1bb2ae11 100644
+--- a/third_party/blink/renderer/core/css/media_values_dynamic.cc
++++ b/third_party/blink/renderer/core/css/media_values_dynamic.cc
+@@ -2,10 +2,6 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+-#ifdef ENABLE_FINGERPRINT
+-#include "a_tools/fingerprint/controller.h"
+-#endif // ENABLE_FINGERPRINT
+-
+ #include "third_party/blink/renderer/core/css/media_values_dynamic.h"
+ 
+ #include "third_party/blink/public/common/css/forced_colors.h"
+@@ -173,24 +169,10 @@ double MediaValuesDynamic::ContainerHeight(const ScopedCSSName&) const {
+ }
+ 
+ int MediaValuesDynamic::DeviceWidth() const {
+-
+-  #ifdef ENABLE_FINGERPRINT
+-  if (auto& window_screen = fingerprint::Controller::GetInstance().GetWindowScreen(); window_screen.Enabled()) {
+-    return window_screen.GetScreenWidth();
+-  }
+-  #endif // ENABLE_FINGERPRINT
+-
+   return CalculateDeviceWidth(frame_);
+ }
+ 
+ int MediaValuesDynamic::DeviceHeight() const {
+-
+-  #ifdef ENABLE_FINGERPRINT
+-  if (auto& window_screen = fingerprint::Controller::GetInstance().GetWindowScreen(); window_screen.Enabled()) {
+-    return window_screen.GetScreenHeight();
+-  }
+-  #endif // ENABLE_FINGERPRINT
+-
+   return CalculateDeviceHeight(frame_);
+ }
+ 
+-- 
+2.43.0
+

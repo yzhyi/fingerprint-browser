@@ -1,0 +1,604 @@
+From e2828dfe32b3634efd2cdca983c53ba03f96cc4a Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Wed, 29 Oct 2025 19:32:15 +0800
+Subject: [PATCH 52/68] add FINGERPRINT_CLASS macro
+
+---
+ a_tools/BUILD.gn                              |  2 ++
+ a_tools/fingerprint/base_fingerprint.h        | 16 +++++++++
+ a_tools/fingerprint/battery/battery.h         | 16 ++-------
+ a_tools/fingerprint/canvas/canvas.h           | 16 ++-------
+ .../fingerprint/device_memory/device_memory.h | 16 ++-------
+ a_tools/fingerprint/fonts/fonts.h             | 16 ++-------
+ .../hardware_concurrency.h                    | 16 ++-------
+ a_tools/fingerprint/navigator/navigator.cc    | 33 +++++++++++++++++++
+ a_tools/fingerprint/navigator/navigator.h     | 20 +++++++++++
+ .../network_information/network_information.h | 16 ++-------
+ a_tools/fingerprint/tls/tls.h                 | 16 ++-------
+ a_tools/fingerprint/touch/touch.h             | 16 ++-------
+ a_tools/fingerprint/webaudio/webaudio.h       | 16 ++-------
+ a_tools/fingerprint/webgl/webgl.h             | 16 ++-------
+ a_tools/fingerprint/webgpu/webgpu.h           | 16 ++-------
+ a_tools/fingerprint/webrtc/webrtc.h           | 16 ++-------
+ .../fingerprint/window_screen/window_screen.h | 16 ++-------
+ config.json                                   |  7 +++-
+ 18 files changed, 116 insertions(+), 170 deletions(-)
+ create mode 100644 a_tools/fingerprint/navigator/navigator.cc
+ create mode 100644 a_tools/fingerprint/navigator/navigator.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index ccd009bedfacd..66caec8496ef9 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -47,6 +47,8 @@ source_set("a_tools") {
+     "fingerprint/touch/touch.cc",
+     "fingerprint/webaudio/webaudio.h",
+     "fingerprint/webaudio/webaudio.cc",
++    "fingerprint/navigator/navigator.h",
++    "fingerprint/navigator/navigator.cc",
+   ]
+   deps = [
+     "//base/allocator/partition_allocator:raw_ptr",
+diff --git a/a_tools/fingerprint/base_fingerprint.h b/a_tools/fingerprint/base_fingerprint.h
+index 39484ba764b8c..aa1fab2539113 100644
+--- a/a_tools/fingerprint/base_fingerprint.h
++++ b/a_tools/fingerprint/base_fingerprint.h
+@@ -23,4 +23,20 @@ protected:
+   bool m_enabled{false};
+ };
+ 
++// 宏定义：简化 BaseFingerprint 派生类的定义
++#define FINGERPRINT_CLASS_DECLARE(ClassName) \
++  class Controller; \
++  class ClassName : public BaseFingerprint { \
++  public: \
++    friend Controller; \
++    ClassName(const ClassName&) = delete; \
++    ClassName& operator=(const ClassName&) = delete; \
++  private: \
++    explicit ClassName(const absl::optional<base::Value> &json_value); \
++    ~ClassName() override; \
++    bool ParseJson(const absl::optional<base::Value> &json_value) override
++
++#define FINGERPRINT_CLASS_END() \
++  }
++
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/battery/battery.h b/a_tools/fingerprint/battery/battery.h
+index 6e706192bcbf2..8bc69429ce6d0 100644
+--- a/a_tools/fingerprint/battery/battery.h
++++ b/a_tools/fingerprint/battery/battery.h
+@@ -8,20 +8,9 @@
+ 
+ namespace fingerprint {
+ 
+-class Controller;
++FINGERPRINT_CLASS_DECLARE(Battery);
+ 
+-class Battery : public BaseFingerprint {
+ public:
+-  friend Controller;
+-  Battery(const Battery&) = delete;
+-  Battery& operator=(const Battery&) = delete;
+-
+-private:
+-  explicit Battery(const absl::optional<base::Value> &json_value);
+-  ~Battery() override;
+-
+-public:
+-  bool ParseJson(const absl::optional<base::Value> &json_value) override;
+   BASE_EXPORT void ModifyLevel(double &level);
+   BASE_EXPORT void ModifyCharging(bool &charging);
+   BASE_EXPORT int64_t ModifyChargingTime(int64_t charge_time); // 还要多久才能充满(单位: 分钟)
+@@ -33,6 +22,7 @@ private:
+   bool m_enable_time{false};
+   double m_charging_time{0};
+   double m_discharging_time{0};
+-};
++
++FINGERPRINT_CLASS_END();
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/canvas/canvas.h b/a_tools/fingerprint/canvas/canvas.h
+index 5113a9685cef8..7c8af2e0f3a64 100644
+--- a/a_tools/fingerprint/canvas/canvas.h
++++ b/a_tools/fingerprint/canvas/canvas.h
+@@ -7,20 +7,9 @@
+ 
+ namespace fingerprint {
+ 
+-class Controller;
++FINGERPRINT_CLASS_DECLARE(Canvas);
+ 
+-class Canvas : public BaseFingerprint {
+ public:
+-  friend Controller;
+-  Canvas(const Canvas&) = delete;
+-  Canvas& operator=(const Canvas&) = delete;
+-
+-private:
+-  explicit Canvas(const absl::optional<base::Value> &json_value);
+-  ~Canvas() override;
+-
+-public:
+-  bool ParseJson(const absl::optional<base::Value> &json_value) override;
+   BASE_EXPORT void ModifyWidth(unsigned &value);
+   BASE_EXPORT void ModifyHeight(unsigned &value);
+   BASE_EXPORT void ModifyRectX(double &value);
+@@ -37,6 +26,7 @@ private:
+   double m_rect_width{0};
+   double m_rect_height{0};
+   bool m_modify_data_url_enable{false};
+-};
++
++FINGERPRINT_CLASS_END();
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/device_memory/device_memory.h b/a_tools/fingerprint/device_memory/device_memory.h
+index 897c086ef1148..67727a11b8c84 100644
+--- a/a_tools/fingerprint/device_memory/device_memory.h
++++ b/a_tools/fingerprint/device_memory/device_memory.h
+@@ -7,24 +7,14 @@
+ 
+ namespace fingerprint {
+ 
+-class Controller;
++FINGERPRINT_CLASS_DECLARE(DeviceMemory);
+ 
+-class DeviceMemory : public BaseFingerprint {
+ public:
+-  friend Controller;
+-  DeviceMemory(const DeviceMemory&) = delete;
+-  DeviceMemory& operator=(const DeviceMemory&) = delete;
+-
+-private:
+-  explicit DeviceMemory(const absl::optional<base::Value> &json_value);
+-  ~DeviceMemory() override;
+-
+-public:
+-  bool ParseJson(const absl::optional<base::Value> &json_value) override;
+   BASE_EXPORT void ModifyDeviceMemory(float &GiB);
+ 
+ private:
+   double m_GiB{0};
+-};
++
++FINGERPRINT_CLASS_END();
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/fonts/fonts.h b/a_tools/fingerprint/fonts/fonts.h
+index a8467e733497a..8f5a0c01a481e 100644
+--- a/a_tools/fingerprint/fonts/fonts.h
++++ b/a_tools/fingerprint/fonts/fonts.h
+@@ -7,20 +7,9 @@
+ 
+ namespace fingerprint {
+ 
+-class Controller;
++FINGERPRINT_CLASS_DECLARE(Fonts);
+ 
+-class Fonts : public BaseFingerprint {
+ public:
+-  friend Controller;
+-  Fonts(const Fonts&) = delete;
+-  Fonts& operator=(const Fonts&) = delete;
+-
+-private:
+-  explicit Fonts(const absl::optional<base::Value> &json_value);
+-  ~Fonts() override;
+-
+-public:
+-  bool ParseJson(const absl::optional<base::Value> &json_value) override;
+   BASE_EXPORT int GetNoise();
+   BASE_EXPORT bool DisableCSSFontFace();
+ 
+@@ -29,6 +18,7 @@ private:
+   double m_noise_min{0};
+   double m_noise_max{0};
+   double m_disable_css_font_face_probability{0};
+-};
++
++FINGERPRINT_CLASS_END();
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.h b/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.h
+index c156618dea072..d13b679f2cabf 100644
+--- a/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.h
++++ b/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.h
+@@ -7,24 +7,14 @@
+ 
+ namespace fingerprint {
+ 
+-class Controller;
++FINGERPRINT_CLASS_DECLARE(HardwareConcurrency);
+ 
+-class HardwareConcurrency : public BaseFingerprint {
+ public:
+-  friend Controller;
+-  HardwareConcurrency(const HardwareConcurrency&) = delete;
+-  HardwareConcurrency& operator=(const HardwareConcurrency&) = delete;
+-
+-private:
+-  explicit HardwareConcurrency(const absl::optional<base::Value> &json_value);
+-  ~HardwareConcurrency() override;
+-
+-public:
+-  bool ParseJson(const absl::optional<base::Value> &json_value) override;
+   BASE_EXPORT unsigned ModifyHardwareConcurrency(unsigned cores);
+ 
+ private:
+   double m_cores{0};
+-};
++
++FINGERPRINT_CLASS_END();
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/navigator/navigator.cc b/a_tools/fingerprint/navigator/navigator.cc
+new file mode 100644
+index 0000000000000..f6ba428f60419
+--- /dev/null
++++ b/a_tools/fingerprint/navigator/navigator.cc
+@@ -0,0 +1,33 @@
++#include "./navigator.h"
++#include "../utils/random.h"
++#include "../utils/parse_json.h"
++
++namespace fingerprint {
++
++Navigator::Navigator(const absl::optional<base::Value> &json_value) {
++  ParseJson(json_value);
++}
++
++Navigator::~Navigator() = default;
++
++bool Navigator::ParseJson(const absl::optional<base::Value> &json_value) {
++  if (!json_value) return false;
++  if (const base::DictValue* dict = FindDict(json_value.value(), "hardware_concurrency"); dict) {
++    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
++      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        FindDouble(params_dict, "cores", m_cores);
++      }
++    }
++    return true;
++  }
++  return false;
++}
++
++unsigned Navigator::ModifyHardwareConcurrency(unsigned cores) {
++  if (m_enabled) {
++    return m_cores;
++  }
++  return cores;
++}
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/navigator/navigator.h b/a_tools/fingerprint/navigator/navigator.h
+new file mode 100644
+index 0000000000000..ab13799e38a98
+--- /dev/null
++++ b/a_tools/fingerprint/navigator/navigator.h
+@@ -0,0 +1,20 @@
++# pragma once
++
++#include "../base_fingerprint.h"
++#include "base/values.h"
++#include "base/base_export.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++
++namespace fingerprint {
++
++FINGERPRINT_CLASS_DECLARE(Navigator);
++
++public:
++  BASE_EXPORT unsigned ModifyHardwareConcurrency(unsigned cores);
++
++private:
++  double m_cores{0};
++
++FINGERPRINT_CLASS_END();
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/network_information/network_information.h b/a_tools/fingerprint/network_information/network_information.h
+index 954280d19703e..95ad3ff3c0667 100644
+--- a/a_tools/fingerprint/network_information/network_information.h
++++ b/a_tools/fingerprint/network_information/network_information.h
+@@ -8,20 +8,9 @@
+ 
+ namespace fingerprint {
+ 
+-class Controller;
++FINGERPRINT_CLASS_DECLARE(NetworkInformation);
+ 
+-class NetworkInformation : public BaseFingerprint {
+ public:
+-  friend Controller;
+-  NetworkInformation(const NetworkInformation&) = delete;
+-  NetworkInformation& operator=(const NetworkInformation&) = delete;
+-
+-private:
+-  explicit NetworkInformation(const absl::optional<base::Value> &json_value);
+-  ~NetworkInformation() override;
+-
+-public:
+-  bool ParseJson(const absl::optional<base::Value> &json_value) override;
+   BASE_EXPORT void ModifyRTT(uint32_t &rtt);
+   BASE_EXPORT void ModifySaveDate(bool &save_data);
+   BASE_EXPORT void ModifyDownlink(double &downlink_mbps);
+@@ -32,6 +21,7 @@ private:
+   bool m_save_data{false};
+   double m_downlink_mbps{0};
+   std::string m_effective_type{"4g"};
+-};
++
++FINGERPRINT_CLASS_END();
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/tls/tls.h b/a_tools/fingerprint/tls/tls.h
+index 63c2cb5784d52..2ca67cbfe760d 100644
+--- a/a_tools/fingerprint/tls/tls.h
++++ b/a_tools/fingerprint/tls/tls.h
+@@ -7,26 +7,16 @@
+ 
+ namespace fingerprint {
+ 
+-class Controller;
++FINGERPRINT_CLASS_DECLARE(TLS);
+ 
+-class TLS : public BaseFingerprint {
+ public:
+-  friend Controller;
+-  TLS(const TLS&) = delete;
+-  TLS& operator=(const TLS&) = delete;
+-
+-private:
+-  explicit TLS(const absl::optional<base::Value> &json_value);
+-  ~TLS() override;
+-
+-public:
+-  bool ParseJson(const absl::optional<base::Value> &json_value) override;
+   BASE_EXPORT void ModifyCipherSuites(std::string &command);
+   // TODO: Yzhyi modify extensions
+ 
+ private:
+   std::vector<std::string> m_adds;
+   std::vector<std::string> m_subs;
+-};
++
++FINGERPRINT_CLASS_END();
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/touch/touch.h b/a_tools/fingerprint/touch/touch.h
+index 6febf998dae8a..b82bc1525c346 100644
+--- a/a_tools/fingerprint/touch/touch.h
++++ b/a_tools/fingerprint/touch/touch.h
+@@ -7,25 +7,15 @@
+ 
+ namespace fingerprint {
+ 
+-class Controller;
++FINGERPRINT_CLASS_DECLARE(Touch);
+ 
+-class Touch : public BaseFingerprint {
+ public:
+-  friend Controller;
+-  Touch(const Touch&) = delete;
+-  Touch& operator=(const Touch&) = delete;
+-
+-private:
+-  explicit Touch(const absl::optional<base::Value> &json_value);
+-  ~Touch() override;
+-
+-public:
+-  bool ParseJson(const absl::optional<base::Value> &json_value) override;
+   BASE_EXPORT int32_t GetMaxTouchPoints();
+   BASE_EXPORT int GetPointerTypes();
+ 
+ private:
+   double m_max_touch_points{0};
+-};
++
++FINGERPRINT_CLASS_END();
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/webaudio/webaudio.h b/a_tools/fingerprint/webaudio/webaudio.h
+index 6c66a53ca695a..532072504a0e3 100644
+--- a/a_tools/fingerprint/webaudio/webaudio.h
++++ b/a_tools/fingerprint/webaudio/webaudio.h
+@@ -7,20 +7,9 @@
+ 
+ namespace fingerprint {
+ 
+-class Controller;
++FINGERPRINT_CLASS_DECLARE(WebAudio);
+ 
+-class WebAudio : public BaseFingerprint {
+ public:
+-  friend Controller;
+-  WebAudio(const WebAudio&) = delete;
+-  WebAudio& operator=(const WebAudio&) = delete;
+-
+-private:
+-  explicit WebAudio(const absl::optional<base::Value> &json_value);
+-  ~WebAudio() override;
+-
+-public:
+-  bool ParseJson(const absl::optional<base::Value> &json_value) override;
+   BASE_EXPORT void ModifySampleRate(float &sample_rate);
+ 
+ private:
+@@ -29,6 +18,7 @@ private:
+     double m_noise_min{0};
+     double m_noise_max{0};
+   } m_sample_rate;
+-};
++
++FINGERPRINT_CLASS_END();
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/webgl/webgl.h b/a_tools/fingerprint/webgl/webgl.h
+index 51358acf3f480..4a3a0cd46e950 100644
+--- a/a_tools/fingerprint/webgl/webgl.h
++++ b/a_tools/fingerprint/webgl/webgl.h
+@@ -10,20 +10,9 @@
+ 
+ namespace fingerprint {
+ 
+-class Controller;
++FINGERPRINT_CLASS_DECLARE(WebGL);
+ 
+-class WebGL : public BaseFingerprint {
+ public:
+-  friend Controller;
+-  WebGL(const WebGL&) = delete;
+-  WebGL& operator=(const WebGL&) = delete;
+-
+-private:
+-  explicit WebGL(const absl::optional<base::Value> &json_value);
+-  ~WebGL() override;
+-
+-public:
+-  bool ParseJson(const absl::optional<base::Value> &json_value) override;
+   BASE_EXPORT std::string GetUnmaskedVendorWebgl();
+   BASE_EXPORT std::string GetUnmaskedRendererWebgl();
+   BASE_EXPORT void ModifyPixelsX(int &value);
+@@ -42,6 +31,7 @@ private:
+   double m_pixels_height{0};
+   std::vector<std::string> m_extensions_adds;
+   std::vector<std::string> m_extensions_subs;
+-};
++
++FINGERPRINT_CLASS_END();
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/webgpu/webgpu.h b/a_tools/fingerprint/webgpu/webgpu.h
+index 732d8c58946d0..a9c5c02bba7ea 100644
+--- a/a_tools/fingerprint/webgpu/webgpu.h
++++ b/a_tools/fingerprint/webgpu/webgpu.h
+@@ -7,20 +7,9 @@
+ 
+ namespace fingerprint {
+ 
+-class Controller;
++FINGERPRINT_CLASS_DECLARE(WebGPU);
+ 
+-class WebGPU : public BaseFingerprint {
+ public:
+-  friend Controller;
+-  WebGPU(const WebGPU&) = delete;
+-  WebGPU& operator=(const WebGPU&) = delete;
+-
+-private:
+-  explicit WebGPU(const absl::optional<base::Value> &json_value);
+-  ~WebGPU() override;
+-
+-public:
+-  bool ParseJson(const absl::optional<base::Value> &json_value) override;
+   BASE_EXPORT std::string ModifyVendor(std::string vendor);
+   BASE_EXPORT std::string ModifyArchitecture(std::string architecture);
+   BASE_EXPORT std::string ModifyDevice(std::string device);
+@@ -42,6 +31,7 @@ private:
+   std::unordered_map<std::string, uint64_t> m_limits;
+   // features
+   std::unordered_map<std::string, bool> m_features;
+-};
++
++FINGERPRINT_CLASS_END();
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/webrtc/webrtc.h b/a_tools/fingerprint/webrtc/webrtc.h
+index 3504ea1c3f328..63d0f15e57e38 100644
+--- a/a_tools/fingerprint/webrtc/webrtc.h
++++ b/a_tools/fingerprint/webrtc/webrtc.h
+@@ -13,20 +13,9 @@ enum class IceCandidateType;
+ 
+ namespace fingerprint {
+ 
+-class Controller;
++FINGERPRINT_CLASS_DECLARE(WebRTC);
+ 
+-class WebRTC : public BaseFingerprint {
+ public:
+-  friend Controller;
+-  WebRTC(const WebRTC&) = delete;
+-  WebRTC& operator=(const WebRTC&) = delete;
+-
+-private:
+-  explicit WebRTC(const absl::optional<base::Value> &json_value);
+-  ~WebRTC() override;
+-
+-public:
+-  bool ParseJson(const absl::optional<base::Value> &json_value) override;
+   BASE_EXPORT std::string ModifyCandidate(std::string candidate);
+ 
+ private:
+@@ -36,6 +25,7 @@ private:
+   double m_srflx_port{0};
+   std::string m_relay_ip;
+   double m_relay_port{0};
+-};
++
++FINGERPRINT_CLASS_END();
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/window_screen/window_screen.h b/a_tools/fingerprint/window_screen/window_screen.h
+index 68984fc951188..19166628797e9 100644
+--- a/a_tools/fingerprint/window_screen/window_screen.h
++++ b/a_tools/fingerprint/window_screen/window_screen.h
+@@ -7,20 +7,9 @@
+ 
+ namespace fingerprint {
+ 
+-class Controller;
++FINGERPRINT_CLASS_DECLARE(WindowScreen);
+ 
+-class WindowScreen : public BaseFingerprint {
+ public:
+-  friend Controller;
+-  WindowScreen(const WindowScreen&) = delete;
+-  WindowScreen& operator=(const WindowScreen&) = delete;
+-
+-private:
+-  explicit WindowScreen(const absl::optional<base::Value> &json_value);
+-  ~WindowScreen() override;
+-
+-public:
+-  bool ParseJson(const absl::optional<base::Value> &json_value) override;
+   BASE_EXPORT int GetScreenWidth();
+   BASE_EXPORT int GetScreenHeight();
+   BASE_EXPORT int GetScreenAvailWidth();
+@@ -63,6 +52,7 @@ private:
+   } m_visual_viewport;
+ 
+   double m_device_pixel_ratio{1};
+-};
++
++FINGERPRINT_CLASS_END();
+ 
+ } // namespace fingerprint
+diff --git a/config.json b/config.json
+index d9b1e3c8e0bbc..871e5c4a95ec9 100644
+--- a/config.json
++++ b/config.json
+@@ -35,7 +35,7 @@
+     }
+   },
+   "fonts": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "seed": 1,
+       "noise_min": 0,
+@@ -162,5 +162,10 @@
+         "noise_max": 1
+       }
+     }
++  },
++  "navigator": {
++    "enabled": true,
++    "params": {
++    }
+   }
+ }
+-- 
+2.43.0
+

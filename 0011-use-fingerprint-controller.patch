@@ -1,0 +1,739 @@
+From 2fc7013fd8c5a9e08bb2311a2ba2e784958911eb Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Mon, 8 Sep 2025 01:35:28 +0800
+Subject: [PATCH 11/68] use fingerprint controller
+
+---
+ a_tools/fingerprint/controller.cc             |  78 +++++++-
+ a_tools/fingerprint/controller.h              |  41 +++++
+ content/public/common/content_switches.cc     |   3 -
+ content/public/common/content_switches.h      |   3 -
+ gdb.txt                                       |   2 +-
+ third_party/blink/common/switches.cc          |   4 -
+ third_party/blink/public/common/switches.h    |   3 -
+ third_party/blink/renderer/core/BUILD.gn      |   6 +
+ .../core/html/canvas/html_canvas_element.cc   |  34 +---
+ .../blink/renderer/core/html/html_element.cc  |  76 ++++----
+ .../blink/renderer/modules/canvas/BUILD.gn    |   6 +
+ .../canvas2d/canvas_2d_recorder_context.cc    |  35 +---
+ .../webgl/webgl_rendering_context_base.cc     | 174 +++++++++---------
+ 13 files changed, 258 insertions(+), 207 deletions(-)
+
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index 11e0dd2d3c528..0a8c11788a87e 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -2,19 +2,21 @@
+ #include "a_tools/fingerprint/controller.h"
+ #include "content/public/common/content_switches.h"
+ #include "base/json/json_reader.h"
+-#include "base/values.h"
+-#include "third_party/abseil-cpp/absl/types/optional.h"
+ #include "third_party/libc++/src/include/__filesystem/path.h"
+ #include "base/files/file_util.h"
+ #include "base/logging.h"
+ 
+ namespace fingerprint {
+ 
++const char kYzhyi[] = "yzhyi";
++
+ Controller::Controller()
+   : m_command_line(base::CommandLine::ForCurrentProcess()) {
+-  if (m_command_line->HasSwitch(switches::kYzhyi)) {
++  if (m_command_line->HasSwitch(kYzhyi)) {
+     m_json_str = m_command_line->
+-      GetSwitchValueASCII(switches::kYzhyi);
++      GetSwitchValueASCII(kYzhyi);
++    m_json_value = base::JSONReader::Read(m_json_str);
++    ParseJson();
+   }
+ }
+ 
+@@ -22,15 +24,77 @@ Controller::~Controller() {}
+ 
+ bool Controller::AppendCommandLine(base::CommandLine* command_line) {
+   if (!m_json_str.empty()) {
+-    command_line->AppendSwitchASCII(switches::kYzhyi, m_json_str);
++    command_line->AppendSwitchASCII(kYzhyi, m_json_str);
+     return true;
+   }
+   return false;
+ }
+ 
+ void Controller::PrintJson() {
+-  std::cout << m_json_str << std::endl;
+-  LOG(INFO) << "---------------hello-------------------";
++  LOG(INFO) << "Controller::PrintJson: " << m_json_str;
++}
++
++void Controller::ParseJson() {
++  ParseCanvas();
++}
++
++bool Controller::ParseCanvas() {
++  base::DictValue* canvas_dict = m_json_value->GetDict().FindDict("canvas");
++  if (canvas_dict) {
++    std::optional<bool> canvas_enable = canvas_dict->FindBool("enable");
++    if (canvas_enable.has_value() && canvas_enable.value()) {
++      m_canvas_enable = canvas_enable.value();
++      base::DictValue* params_dict = canvas_dict->FindDict("params");
++      if (params_dict) {
++        std::optional<double> canvas_width = params_dict->FindDouble("width");
++        if (canvas_width.has_value()) {
++          m_canvas_width = canvas_width.value();
++        }
++        std::optional<double> canvas_height = params_dict->FindDouble("height");
++        if (canvas_height.has_value()) {
++          m_canvas_height = canvas_height.value();
++        }
++        std::optional<double> canvas_rect_x = params_dict->FindDouble("rect_x");
++        if (canvas_rect_x.has_value()) {
++          m_canvas_rect_x = canvas_rect_x.value();
++        }
++        std::optional<double> canvas_rect_y = params_dict->FindDouble("rect_y");
++        if (canvas_rect_y.has_value()) {
++          m_canvas_rect_y = canvas_rect_y.value();
++        }
++        std::optional<double> canvas_rect_width = params_dict->FindDouble("rect_width");
++        if (canvas_rect_width.has_value()) {
++          m_canvas_rect_width = canvas_rect_width.value();
++        }
++        std::optional<double> canvas_rect_height = params_dict->FindDouble("rect_height");
++        if (canvas_rect_height.has_value()) {
++          m_canvas_rect_height = canvas_rect_height.value();
++        }
++      }
++    }
++    return true;
++  }
++  return false;
++}
++
++bool Controller::ParseWebGL() {
++  base::DictValue* webgl_dict = m_json_value->GetDict().FindDict("webgl");
++  if (webgl_dict) {
++    std::optional<bool> webgl_enable = webgl_dict->FindBool("enable");
++    if (webgl_enable.has_value() && webgl_enable.value()) {
++      m_webgl_enable = webgl_enable.value();
++      base::DictValue* params_dict = webgl_dict->FindDict("params");
++      if (params_dict) {
++        std::optional<double> canvas_width = params_dict->FindDouble("width");
++        if (canvas_width.has_value()) {
++          m_canvas_width = canvas_width.value();
++        }
++      }
++    }
++    return true;
++  }
++  return false;
++
+ }
+ 
+ }
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index 3d6fe4ad68bf4..a02942f89f3fd 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -4,9 +4,14 @@
+ #include <memory>
+ #include <mutex>
+ #include "base/command_line.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++#include "base/values.h"
++#include "content/common/content_export.h"
+ 
+ namespace fingerprint {
+ 
++CONTENT_EXPORT extern const char kYzhyi[];
++
+ class Controller {
+ public:
+   __attribute__((visibility("default")))
+@@ -21,6 +26,29 @@ public:
+ 
+   bool AppendCommandLine(base::CommandLine* command_line);
+   void PrintJson();
++  void ParseJson();
++  bool ParseCanvas();
++  bool ParseWebGL();
++
++  // canvas
++  void ModifyCanvasWidth(unsigned &value) {
++    value += static_cast<unsigned>(m_canvas_width);
++  }
++  void ModifyCanvasHeight(unsigned &value) {
++    value += static_cast<unsigned>(m_canvas_height);
++  }
++  void ModifyCanvasRectX(double &value) {
++    value += static_cast<double>(m_canvas_rect_x);
++  }
++  void ModifyCanvasRectY(double &value) {
++    value += static_cast<double>(m_canvas_rect_y);
++  }
++  void ModifyCanvasRectWidth(double &value) {
++    value += static_cast<double>(m_canvas_rect_width);
++  }
++  void ModifyCanvasRectHeight(double &value) {
++    value += static_cast<double>(m_canvas_rect_height);
++  }
+ 
+ private:
+   Controller();
+@@ -30,6 +58,19 @@ private:
+ 
+   std::unique_ptr<const base::CommandLine> m_command_line;
+   std::string m_json_str;
++  absl::optional<base::Value> m_json_value;
++
++  // canvas
++  bool m_canvas_enable{false};
++  double m_canvas_width{0};
++  double m_canvas_height{0};
++  double m_canvas_rect_x{0};
++  double m_canvas_rect_y{0};
++  double m_canvas_rect_width{0};
++  double m_canvas_rect_height{0};
++
++  // webgl
++  bool m_webgl_enable{false};
+ };
+ 
+ } // namespace fingerprint
+diff --git a/content/public/common/content_switches.cc b/content/public/common/content_switches.cc
+index 0f90d4c75e9e1..0e377c36cf91f 100644
+--- a/content/public/common/content_switches.cc
++++ b/content/public/common/content_switches.cc
+@@ -591,9 +591,6 @@ const char kProcessPerTab[]                 = "process-per-tab";
+ // The value of this switch determines whether the process is started as a
+ // renderer or plugin host.  If it's empty, it's the browser.
+ const char kProcessType[]                   = "type";
+-// Yzhyi start
+-const char kYzhyi[]                         = "yzhyi";
+-// Yzhyi end
+ 
+ // Causes Protected Audiences Bidding and Auction API to supply the provided
+ // debugging key to the trusted auction server. This tells the server that it
+diff --git a/content/public/common/content_switches.h b/content/public/common/content_switches.h
+index 1377136f60c1b..81a2ec9485de5 100644
+--- a/content/public/common/content_switches.h
++++ b/content/public/common/content_switches.h
+@@ -170,9 +170,6 @@ CONTENT_EXPORT extern const char kPrivateAggregationDeveloperMode[];
+ CONTENT_EXPORT extern const char kProcessPerSite[];
+ CONTENT_EXPORT extern const char kProcessPerTab[];
+ CONTENT_EXPORT extern const char kProcessType[];
+-// Yzhyi start
+-CONTENT_EXPORT extern const char kYzhyi[];
+-// Yzhyi end
+ CONTENT_EXPORT extern const char kProtectedAudiencesConsentedDebugToken[];
+ CONTENT_EXPORT extern const char kPullToRefresh[];
+ CONTENT_EXPORT extern const char kReduceAcceptLanguage[];
+diff --git a/gdb.txt b/gdb.txt
+index 5e5c7964a6e1a..632262bbb6d9a 100644
+--- a/gdb.txt
++++ b/gdb.txt
+@@ -1,5 +1,5 @@
+ break ChromeMain
+ commands
+-  break RenderProcessHostImpl::AppendRendererCommandLine
++  break Controller::ParseJson
+   continue
+ end
+diff --git a/third_party/blink/common/switches.cc b/third_party/blink/common/switches.cc
+index eab95b78aeb5e..66db3ba1f597b 100644
+--- a/third_party/blink/common/switches.cc
++++ b/third_party/blink/common/switches.cc
+@@ -7,10 +7,6 @@
+ namespace blink {
+ namespace switches {
+ 
+-// Yzhyi start
+-const char kYzhyi[] = "yzhyi";
+-// Yzhyi end
+-
+ // Allows processing of input before a frame has been committed.
+ // TODO(crbug.com/987626): Used by headless. Look for a way not
+ // involving a command line switch.
+diff --git a/third_party/blink/public/common/switches.h b/third_party/blink/public/common/switches.h
+index 18d21b6136abe..c4d4b3bfc39c0 100644
+--- a/third_party/blink/public/common/switches.h
++++ b/third_party/blink/public/common/switches.h
+@@ -14,9 +14,6 @@ namespace switches {
+ 
+ // All switches in alphabetical order. The switches should be documented
+ // alongside the definition of their values in the .cc file.
+-// Yzhyi start
+-BLINK_COMMON_EXPORT extern const char kYzhyi[];
+-// Yzhyi end
+ BLINK_COMMON_EXPORT extern const char kAllowPreCommitInput[];
+ BLINK_COMMON_EXPORT extern const char kBlinkSettings[];
+ BLINK_COMMON_EXPORT extern const char kDarkModeSettings[];
+diff --git a/third_party/blink/renderer/core/BUILD.gn b/third_party/blink/renderer/core/BUILD.gn
+index 89dbaa5f5a3ae..ce429844aed4b 100644
+--- a/third_party/blink/renderer/core/BUILD.gn
++++ b/third_party/blink/renderer/core/BUILD.gn
+@@ -211,6 +211,12 @@ source_set("prerequisites") {
+   ]
+   deps = [ "//third_party/blink/public:scaled_resources" ]
+ 
++  # Yzhyi start
++  deps += [
++    "//a_tools"
++  ]
++  # Yzhyi end
++
+   public_configs = [
+     ":core_include_dirs",
+     "//third_party/blink/renderer:config",
+diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+index ddb2918df7fa4..2796f71b94f39 100644
+--- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
++++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+@@ -26,11 +26,7 @@
+  */
+ 
+ // Yzhyi start
+-#include "base/command_line.h"
+-#include "third_party/blink/public/common/switches.h"
+-#include "base/json/json_reader.h"
+-#include "base/values.h"
+-#include "third_party/abseil-cpp/absl/types/optional.h"
++#include "a_tools/fingerprint/controller.h"
+ // Yzhyi end
+ 
+ #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
+@@ -539,19 +535,7 @@ void HTMLCanvasElement::setWidth(unsigned value,
+                                  ExceptionState& exception_state) {
+   if (SizeChangesAreAllowed(exception_state)) {
+     // Yzhyi start
+-    const base::CommandLine *yzhyi_command_line =
+-      base::CommandLine::ForCurrentProcess();
+-    if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
+-      std::string yzhyi_command_str = yzhyi_command_line->
+-        GetSwitchValueASCII(switches::kYzhyi);
+-      absl::optional<base::Value> yzhyi_command_value =
+-        base::JSONReader::Read(yzhyi_command_str);
+-      base::DictValue* canvas_dict = yzhyi_command_value->GetDict().FindDict("canvas");
+-      std::optional<double> canvas_width = canvas_dict->FindDouble("set_width");
+-      if (canvas_width.has_value()) {
+-        value += canvas_width.value();
+-      }
+-    }
++    fingerprint::Controller::GetInstance().ModifyCanvasWidth(value);
+     // Yzhyi end
+     SetUnsignedIntegralAttribute(html_names::kWidthAttr, value,
+                                  kDefaultCanvasWidth);
+@@ -562,19 +546,7 @@ void HTMLCanvasElement::setHeight(unsigned value,
+                                   ExceptionState& exception_state) {
+   if (SizeChangesAreAllowed(exception_state)) {
+     // Yzhyi start
+-    const base::CommandLine *yzhyi_command_line =
+-      base::CommandLine::ForCurrentProcess();
+-    if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
+-      std::string yzhyi_command_str = yzhyi_command_line->
+-        GetSwitchValueASCII(switches::kYzhyi);
+-      absl::optional<base::Value> yzhyi_command_value =
+-        base::JSONReader::Read(yzhyi_command_str);
+-      base::DictValue* canvas_dict = yzhyi_command_value->GetDict().FindDict("canvas");
+-      std::optional<double> canvas_height = canvas_dict->FindDouble("set_height");
+-      if (canvas_height.has_value()) {
+-        value += canvas_height.value();
+-      }
+-    }
++    fingerprint::Controller::GetInstance().ModifyCanvasHeight(value);
+     // Yzhyi end
+     SetUnsignedIntegralAttribute(html_names::kHeightAttr, value,
+                                  kDefaultCanvasHeight);
+diff --git a/third_party/blink/renderer/core/html/html_element.cc b/third_party/blink/renderer/core/html/html_element.cc
+index d76e7f76f46da..3acde18fd299a 100644
+--- a/third_party/blink/renderer/core/html/html_element.cc
++++ b/third_party/blink/renderer/core/html/html_element.cc
+@@ -23,12 +23,12 @@
+  *
+  */
+ // Yzhyi start
+-#include <random>
+-#include "base/command_line.h"
+-#include "third_party/blink/public/common/switches.h"
+-#include "base/json/json_reader.h"
+-#include "base/values.h"
+-#include "third_party/abseil-cpp/absl/types/optional.h"
++// #include <random>
++// #include "base/command_line.h"
++// #include "third_party/blink/public/common/switches.h"
++// #include "base/json/json_reader.h"
++// #include "base/values.h"
++// #include "third_party/abseil-cpp/absl/types/optional.h"
+ // Yzhyi end
+ 
+ #include "third_party/blink/renderer/core/html/html_element.h"
+@@ -3018,16 +3018,16 @@ int HTMLElement::offsetTopForBinding() {
+ }
+ 
+ // Yzhyi start
+-int getRandomIntForFoo2Modern() {
+-  static std::mt19937 generator(static_cast<unsigned long>(time(NULL))); // 静态以确保只初始化一次
+-  std::uniform_int_distribution<int> distribution(0, 9);
+-  int tmp = distribution(generator);
+-  if (tmp > 0){
+-    return 0;
+-  }else{
+-    return 1;
+-  }
+-}
++// int getRandomIntForFoo2Modern() {
++//   static std::mt19937 generator(static_cast<unsigned long>(time(NULL))); // 静态以确保只初始化一次
++//   std::uniform_int_distribution<int> distribution(0, 9);
++//   int tmp = distribution(generator);
++//   if (tmp > 0){
++//     return 0;
++//   }else{
++//     return 1;
++//   }
++// }
+ // Yzhyi end
+ 
+ int HTMLElement::offsetWidthForBinding() {
+@@ -3038,17 +3038,17 @@ int HTMLElement::offsetWidthForBinding() {
+     result = AdjustedOffsetForZoom(layout_object->OffsetWidth());
+   }
+   // Yzhyi start
+-  const ::base::CommandLine* yzhyi_command_line = ::base::CommandLine::ForCurrentProcess();
+-  if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
+-    std::string yzhyi_command_str = yzhyi_command_line->
+-      GetSwitchValueASCII(switches::kYzhyi);
+-    absl::optional<base::Value> yzhyi_command_value =
+-      base::JSONReader::Read(yzhyi_command_str);
+-    std::optional<bool> data = yzhyi_command_value->GetDict().FindBool("fonts");
+-    if (data.has_value() && data.value()) {
+-      result = result + getRandomIntForFoo2Modern();
+-    }
+-  }
++  // const ::base::CommandLine* yzhyi_command_line = ::base::CommandLine::ForCurrentProcess();
++  // if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
++  //   std::string yzhyi_command_str = yzhyi_command_line->
++  //     GetSwitchValueASCII(switches::kYzhyi);
++  //   absl::optional<base::Value> yzhyi_command_value =
++  //     base::JSONReader::Read(yzhyi_command_str);
++  //   std::optional<bool> data = yzhyi_command_value->GetDict().FindBool("fonts");
++  //   if (data.has_value() && data.value()) {
++  //     result = result + getRandomIntForFoo2Modern();
++  //   }
++  // }
+   // Yzhyi end
+   return result;
+ }
+@@ -3062,17 +3062,17 @@ int HTMLElement::offsetHeightForBinding() {
+     result = AdjustedOffsetForZoom(layout_object->OffsetHeight());
+   }
+   // Yzhyi start
+-  const ::base::CommandLine* yzhyi_command_line = ::base::CommandLine::ForCurrentProcess();
+-  if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
+-    std::string yzhyi_command_str = yzhyi_command_line->
+-      GetSwitchValueASCII(switches::kYzhyi);
+-    absl::optional<base::Value> yzhyi_command_value =
+-      base::JSONReader::Read(yzhyi_command_str);
+-    std::optional<bool> data = yzhyi_command_value->GetDict().FindBool("fonts");
+-    if (data.has_value() && data.value()) {
+-      result = result + getRandomIntForFoo2Modern();
+-    }
+-  }
++  // const ::base::CommandLine* yzhyi_command_line = ::base::CommandLine::ForCurrentProcess();
++  // if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
++  //   std::string yzhyi_command_str = yzhyi_command_line->
++  //     GetSwitchValueASCII(switches::kYzhyi);
++  //   absl::optional<base::Value> yzhyi_command_value =
++  //     base::JSONReader::Read(yzhyi_command_str);
++  //   std::optional<bool> data = yzhyi_command_value->GetDict().FindBool("fonts");
++  //   if (data.has_value() && data.value()) {
++  //     result = result + getRandomIntForFoo2Modern();
++  //   }
++  // }
+   // Yzhyi end
+   return result;
+ }
+diff --git a/third_party/blink/renderer/modules/canvas/BUILD.gn b/third_party/blink/renderer/modules/canvas/BUILD.gn
+index 51ad545130607..0023f2139fa8e 100644
+--- a/third_party/blink/renderer/modules/canvas/BUILD.gn
++++ b/third_party/blink/renderer/modules/canvas/BUILD.gn
+@@ -67,6 +67,12 @@ blink_modules_sources("canvas") {
+   ]
+   allow_circular_includes_from =
+       [ "//third_party/blink/renderer/modules/webcodecs" ]
++  
++  # Yzhyi start
++  deps += [
++    "//a_tools",
++  ]
++  # Yzhyi end
+ }
+ 
+ fuzzer_test("canvas_fuzzer") {
+diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
+index b70fb6a43096e..abfb53486900f 100644
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
+@@ -3,11 +3,7 @@
+ // found in the LICENSE file.
+ 
+ // Yzhyi start
+-#include "base/command_line.h"
+-#include "third_party/blink/public/common/switches.h"
+-#include "base/json/json_reader.h"
+-#include "base/values.h"
+-#include "third_party/abseil-cpp/absl/types/optional.h"
++#include "a_tools/fingerprint/controller.h"
+ // Yzhyi end
+ 
+ #include "third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.h"
+@@ -1921,31 +1917,10 @@ void Canvas2DRecorderContext::fillRect(double x,
+   }
+ 
+   // Yzhyi start
+-  const base::CommandLine *yzhyi_command_line =
+-    base::CommandLine::ForCurrentProcess();
+-  if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
+-    std::string yzhyi_command_str = yzhyi_command_line->
+-      GetSwitchValueASCII(switches::kYzhyi);
+-    absl::optional<base::Value> yzhyi_command_value =
+-      base::JSONReader::Read(yzhyi_command_str);
+-    base::DictValue* canvas_dict = yzhyi_command_value->GetDict().FindDict("canvas");
+-    std::optional<double> canvas_fill_rect_x = canvas_dict->FindDouble("fill_rect_x");
+-    if (canvas_fill_rect_x.has_value()) {
+-      x += canvas_fill_rect_x.value();
+-    }
+-    std::optional<double> canvas_fill_rect_y = canvas_dict->FindDouble("fill_rect_y");
+-    if (canvas_fill_rect_y.has_value()) {
+-      y += canvas_fill_rect_y.value();
+-    }
+-    std::optional<double> canvas_fill_rect_width = canvas_dict->FindDouble("fill_rect_width");
+-    if (canvas_fill_rect_width.has_value()) {
+-      width += canvas_fill_rect_width.value();
+-    }
+-    std::optional<double> canvas_fill_rect_height = canvas_dict->FindDouble("fill_rect_height");
+-    if (canvas_fill_rect_height.has_value()) {
+-      height += canvas_fill_rect_height.value();
+-    }
+-  }
++  fingerprint::Controller::GetInstance().ModifyCanvasRectX(x);
++  fingerprint::Controller::GetInstance().ModifyCanvasRectY(y);
++  fingerprint::Controller::GetInstance().ModifyCanvasRectWidth(width);
++  fingerprint::Controller::GetInstance().ModifyCanvasRectHeight(height);
+   // Yzhyi end
+ 
+   // clamp to float to avoid float cast overflow when used as SkScalar
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index acec354b4ef95..8a5bdb1f3f415 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -24,15 +24,15 @@
+  */
+ 
+ // Yzhyi start
+-#include <algorithm> // std::shuffle
+-#include <random>    // std::default_random_engine
+-#include <chrono>    // std::chrono::system_clock
+-#include <iostream>
+-#include "base/command_line.h"
+-#include "third_party/blink/public/common/switches.h"
+-#include "base/json/json_reader.h"
+-#include "base/values.h"
+-#include "third_party/abseil-cpp/absl/types/optional.h"
++// #include <algorithm> // std::shuffle
++// #include <random>    // std::default_random_engine
++// #include <chrono>    // std::chrono::system_clock
++// #include <iostream>
++// #include "base/command_line.h"
++// #include "third_party/blink/public/common/switches.h"
++// #include "base/json/json_reader.h"
++// #include "base/values.h"
++// #include "third_party/abseil-cpp/absl/types/optional.h"
+ // Yzhyi end
+ 
+ #include "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h"
+@@ -4065,23 +4065,23 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+                          String(ContextGL()->GetString(GL_RENDERER))));
+         }
+         // Yzhyi start
+-        const base::CommandLine *yzhyi_command_line =
+-          base::CommandLine::ForCurrentProcess();
+-        if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
+-          std::string yzhyi_command_str = yzhyi_command_line->
+-            GetSwitchValueASCII(switches::kYzhyi);
+-          absl::optional<base::Value> yzhyi_command_value =
+-            base::JSONReader::Read(yzhyi_command_str);
+-          base::DictValue* webgl_dict = yzhyi_command_value->GetDict().FindDict("webgl");
+-          base::DictValue* get_parameter_dict = webgl_dict->FindDict("get_parameter");
+-          if (get_parameter_dict) {
+-            std::string *unmasked_renderer_str = get_parameter_dict->FindString("unmasked_renderer_webgl");
+-            if (unmasked_renderer_str != nullptr) {
+-              return WebGLAny(script_state,
+-                              String(*unmasked_renderer_str));
+-            }
+-          }
+-        }
++        // const base::CommandLine *yzhyi_command_line =
++        //   base::CommandLine::ForCurrentProcess();
++        // if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
++        //   std::string yzhyi_command_str = yzhyi_command_line->
++        //     GetSwitchValueASCII(switches::kYzhyi);
++        //   absl::optional<base::Value> yzhyi_command_value =
++        //     base::JSONReader::Read(yzhyi_command_str);
++        //   base::DictValue* webgl_dict = yzhyi_command_value->GetDict().FindDict("webgl");
++        //   base::DictValue* get_parameter_dict = webgl_dict->FindDict("get_parameter");
++        //   if (get_parameter_dict) {
++        //     std::string *unmasked_renderer_str = get_parameter_dict->FindString("unmasked_renderer_webgl");
++        //     if (unmasked_renderer_str != nullptr) {
++        //       return WebGLAny(script_state,
++        //                       String(*unmasked_renderer_str));
++        //     }
++        //   }
++        // }
+         return WebGLAny(script_state,
+                         String(ContextGL()->GetString(GL_RENDERER)));
+         // Yzhyi end
+@@ -4099,23 +4099,23 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+                          String(ContextGL()->GetString(GL_VENDOR))));
+         }
+         // Yzhyi start
+-        const base::CommandLine *yzhyi_command_line =
+-          base::CommandLine::ForCurrentProcess();
+-        if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
+-          std::string yzhyi_command_str = yzhyi_command_line->
+-            GetSwitchValueASCII(switches::kYzhyi);
+-          absl::optional<base::Value> yzhyi_command_value =
+-            base::JSONReader::Read(yzhyi_command_str);
+-          base::DictValue* webgl_dict = yzhyi_command_value->GetDict().FindDict("webgl");
+-          base::DictValue* get_parameter_dict = webgl_dict->FindDict("get_parameter");
+-          if (get_parameter_dict) {
+-            std::string *unmasked_vendor_str = get_parameter_dict->FindString("unmasked_vendor_webgl");
+-            if (unmasked_vendor_str != nullptr) {
+-              return WebGLAny(script_state,
+-                              String(*unmasked_vendor_str));
+-            }
+-          }
+-        }
++        // const base::CommandLine *yzhyi_command_line =
++        //   base::CommandLine::ForCurrentProcess();
++        // if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
++        //   std::string yzhyi_command_str = yzhyi_command_line->
++        //     GetSwitchValueASCII(switches::kYzhyi);
++        //   absl::optional<base::Value> yzhyi_command_value =
++        //     base::JSONReader::Read(yzhyi_command_str);
++        //   base::DictValue* webgl_dict = yzhyi_command_value->GetDict().FindDict("webgl");
++        //   base::DictValue* get_parameter_dict = webgl_dict->FindDict("get_parameter");
++        //   if (get_parameter_dict) {
++        //     std::string *unmasked_vendor_str = get_parameter_dict->FindString("unmasked_vendor_webgl");
++        //     if (unmasked_vendor_str != nullptr) {
++        //       return WebGLAny(script_state,
++        //                       String(*unmasked_vendor_str));
++        //     }
++        //   }
++        // }
+         return WebGLAny(script_state,
+                         String(ContextGL()->GetString(GL_VENDOR)));
+         // Yzhyi end
+@@ -4452,24 +4452,24 @@ WebGLRenderingContextBase::getSupportedExtensions() {
+   }
+ 
+   // Yzhyi start
+-  const base::CommandLine *yzhyi_command_line =
+-    base::CommandLine::ForCurrentProcess();
+-  if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
+-    std::string yzhyi_command_str = yzhyi_command_line->
+-      GetSwitchValueASCII(switches::kYzhyi);
+-    absl::optional<base::Value> yzhyi_command_value =
+-      base::JSONReader::Read(yzhyi_command_str);
+-    base::DictValue* webgl_dict = yzhyi_command_value->GetDict().FindDict("webgl");
+-    base::DictValue* get_supported_extensions_dict = webgl_dict->FindDict("get_supported_extensions");
+-    std::optional<bool> random_shuffle = get_supported_extensions_dict->FindBool("random_shuffle");
+-    if (random_shuffle.has_value() && random_shuffle.value()) {
+-      // 使用当前时间作为随机数生成的种子
+-      unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+-      std::default_random_engine engine(seed);
+-      // 打乱result中的元素顺序
+-      std::shuffle(result.begin(), result.end(), engine);
+-    }
+-  }
++  // const base::CommandLine *yzhyi_command_line =
++  //   base::CommandLine::ForCurrentProcess();
++  // if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
++  //   std::string yzhyi_command_str = yzhyi_command_line->
++  //     GetSwitchValueASCII(switches::kYzhyi);
++  //   absl::optional<base::Value> yzhyi_command_value =
++  //     base::JSONReader::Read(yzhyi_command_str);
++  //   base::DictValue* webgl_dict = yzhyi_command_value->GetDict().FindDict("webgl");
++  //   base::DictValue* get_supported_extensions_dict = webgl_dict->FindDict("get_supported_extensions");
++  //   std::optional<bool> random_shuffle = get_supported_extensions_dict->FindBool("random_shuffle");
++  //   if (random_shuffle.has_value() && random_shuffle.value()) {
++  //     // 使用当前时间作为随机数生成的种子
++  //     unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
++  //     std::default_random_engine engine(seed);
++  //     // 打乱result中的元素顺序
++  //     std::shuffle(result.begin(), result.end(), engine);
++  //   }
++  // }
+   // TODO: can customize
+   // Yzhyi end
+ 
+@@ -5228,32 +5228,32 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
+                                                  int64_t offset) {
+ 
+   // Yzhyi start
+-  const base::CommandLine *yzhyi_command_line =
+-    base::CommandLine::ForCurrentProcess();
+-  if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
+-    std::string yzhyi_command_str = yzhyi_command_line->
+-      GetSwitchValueASCII(switches::kYzhyi);
+-    absl::optional<base::Value> yzhyi_command_value =
+-      base::JSONReader::Read(yzhyi_command_str);
+-    base::DictValue* webgl_dict = yzhyi_command_value->GetDict().FindDict("webgl");
+-    base::DictValue* read_pixels_helper_dict = webgl_dict->FindDict("read_pixels_helper");
+-    std::optional<int> x_int = read_pixels_helper_dict->FindInt("x");
+-    std::optional<int> y_int = read_pixels_helper_dict->FindInt("y");
+-    std::optional<int> width_int = read_pixels_helper_dict->FindInt("width");
+-    std::optional<int> height_int = read_pixels_helper_dict->FindInt("height");
+-    if (x_int.has_value()) {
+-      x += x_int.value();
+-    }
+-    if (y_int.has_value()) {
+-      y += y_int.value();
+-    }
+-    if (width_int.has_value()) {
+-      width += width_int.value();
+-    }
+-    if (height_int.has_value()) {
+-      height += height_int.value();
+-    }
+-  }
++  // const base::CommandLine *yzhyi_command_line =
++  //   base::CommandLine::ForCurrentProcess();
++  // if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
++  //   std::string yzhyi_command_str = yzhyi_command_line->
++  //     GetSwitchValueASCII(switches::kYzhyi);
++  //   absl::optional<base::Value> yzhyi_command_value =
++  //     base::JSONReader::Read(yzhyi_command_str);
++  //   base::DictValue* webgl_dict = yzhyi_command_value->GetDict().FindDict("webgl");
++  //   base::DictValue* read_pixels_helper_dict = webgl_dict->FindDict("read_pixels_helper");
++  //   std::optional<int> x_int = read_pixels_helper_dict->FindInt("x");
++  //   std::optional<int> y_int = read_pixels_helper_dict->FindInt("y");
++  //   std::optional<int> width_int = read_pixels_helper_dict->FindInt("width");
++  //   std::optional<int> height_int = read_pixels_helper_dict->FindInt("height");
++  //   if (x_int.has_value()) {
++  //     x += x_int.value();
++  //   }
++  //   if (y_int.has_value()) {
++  //     y += y_int.value();
++  //   }
++  //   if (width_int.has_value()) {
++  //     width += width_int.value();
++  //   }
++  //   if (height_int.has_value()) {
++  //     height += height_int.value();
++  //   }
++  // }
+   // Yzhyi end
+ 
+   if (isContextLost())
+-- 
+2.43.0
+

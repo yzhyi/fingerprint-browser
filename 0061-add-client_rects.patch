@@ -1,0 +1,52 @@
+From f6c1d271ec4bfe2b91f7ec70f1e8935841e3b7f8 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Thu, 18 Dec 2025 15:46:05 +0800
+Subject: [PATCH 61/68] add client_rects
+
+---
+ a_tools/README.md                               | 15 ++++++++++++++-
+ a_tools/fingerprint/client_rects/client_rects.h |  2 +-
+ 2 files changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/a_tools/README.md b/a_tools/README.md
+index 4090a445e23cc..710b1d43b85b3 100644
+--- a/a_tools/README.md
++++ b/a_tools/README.md
+@@ -31,7 +31,20 @@ chrome_pgo_phase = 0
+ 
+ # TODO
+ ```c++
+-base/system/sys_info_posix.cc:SysInfo::OperatingSystemArchitecture() -> header 要修改这个
++base/system/sys_info_posix.cc:SysInfo::OperatingSystemArchitecture() -> header 要修改这个(最底层)
+ ```
++* 插件指纹(creepjs 需要关注 mimeTypes)
++* 无头检测
+ 
+ # navigator, ua, client hints 要统一
++
++# IP 指纹关联
++* 比较 WebRTC 获取的外网 IP 与 HTTP 请求中的 IP，可以判断 IP 是否被代理
++  * TODO: 在每次启动指纹浏览器进行传参之前，先获取本机的真实 IP 地址，然后将要传递的 WebRTC 外网 IP 定义为此 IP 地址
++* 国家地区、经纬度、地理位置、时区和时间、语言 也需要进行匹配
++
++# HTTP 指纹关联
++## UA 指纹关联
++* UA 指纹返回的是浏览器的代理字符串，这些信息在 navigator 对象中也是存在的，所以要保持 navigator 中的这类信息和定制的 UA 保持一致
++* Javascript 层 的 UA 信息和 HTTP 层的 UA 信息保持一致
++* Client Hints 指纹需与 UA 信息同步
+diff --git a/a_tools/fingerprint/client_rects/client_rects.h b/a_tools/fingerprint/client_rects/client_rects.h
+index 914b527f14ac9..690722c2ee99c 100644
+--- a/a_tools/fingerprint/client_rects/client_rects.h
++++ b/a_tools/fingerprint/client_rects/client_rects.h
+@@ -18,7 +18,7 @@ private:
+   double m_noise_min{0};
+   double m_noise_max{0};
+   double m_noise_level{1};
+-  
++
+   double m_width_noise{0};
+   double m_height_noise{0};
+ 
+-- 
+2.43.0
+

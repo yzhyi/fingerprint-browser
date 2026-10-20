@@ -1,0 +1,399 @@
+From 701442073343488eab9d587fafdd1720fedd2908 Mon Sep 17 00:00:00 2001
+From: yuzhengyi02 <yuzhengyi02@meituan.com>
+Date: Wed, 24 Sep 2025 20:25:10 +0800
+Subject: [PATCH 28/68] add tls (modify cipher suites)
+
+---
+ a_tools/BUILD.gn                              |  2 +
+ a_tools/fingerprint/base_fingerprint.h        |  2 +-
+ a_tools/fingerprint/canvas/canvas.h           |  3 +-
+ a_tools/fingerprint/controller.cc             |  3 +-
+ a_tools/fingerprint/controller.h              |  3 ++
+ a_tools/fingerprint/fonts/fonts.h             |  3 +-
+ a_tools/fingerprint/tls/tls.cc                | 48 +++++++++++++++++++
+ a_tools/fingerprint/tls/tls.h                 | 30 ++++++++++++
+ a_tools/fingerprint/utils/parse_json.cc       |  4 ++
+ a_tools/fingerprint/utils/parse_json.h        |  1 +
+ a_tools/fingerprint/webgl/webgl.h             |  3 +-
+ a_tools/fingerprint/webgpu/webgpu.h           |  3 +-
+ a_tools/fingerprint/webrtc/webrtc.cc          |  1 +
+ a_tools/fingerprint/webrtc/webrtc.h           |  9 ++--
+ config.json                                   | 11 +++++
+ .../service_host/utility_process_host.cc      |  8 ++++
+ net/socket/ssl_client_socket_impl.cc          |  8 ++++
+ 17 files changed, 129 insertions(+), 13 deletions(-)
+ create mode 100644 a_tools/fingerprint/tls/tls.cc
+ create mode 100644 a_tools/fingerprint/tls/tls.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index 2871420e8535b..7423e7f9602f6 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -26,6 +26,8 @@ static_library("a_tools") {
+     "fingerprint/webgpu/webgpu.cc",
+     "fingerprint/webrtc/webrtc.h",
+     "fingerprint/webrtc/webrtc.cc",
++    "fingerprint/tls/tls.h",
++    "fingerprint/tls/tls.cc",
+   ]
+ 
+   # 依赖的其他模块（必须显式声明，Chromium 不支持隐式依赖）
+diff --git a/a_tools/fingerprint/base_fingerprint.h b/a_tools/fingerprint/base_fingerprint.h
+index 44ba79ef1f0a3..39484ba764b8c 100644
+--- a/a_tools/fingerprint/base_fingerprint.h
++++ b/a_tools/fingerprint/base_fingerprint.h
+@@ -14,7 +14,7 @@ public:
+   BaseFingerprint(const BaseFingerprint&) = delete;
+   BaseFingerprint& operator=(const BaseFingerprint&) = delete;
+   virtual ~BaseFingerprint() = default;
+-  
++
+ public:
+   virtual bool ParseJson(const absl::optional<base::Value> &json_value) = 0;
+   bool Enabled() { return m_enabled; }
+diff --git a/a_tools/fingerprint/canvas/canvas.h b/a_tools/fingerprint/canvas/canvas.h
+index 0633c4f050fb9..ab824bfe56114 100644
+--- a/a_tools/fingerprint/canvas/canvas.h
++++ b/a_tools/fingerprint/canvas/canvas.h
+@@ -18,10 +18,9 @@ public:
+ private:
+   explicit Canvas(const absl::optional<base::Value> &json_value);
+   ~Canvas() override;
+-  
++
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+-
+   void ModifyWidth(unsigned &value);
+   void ModifyHeight(unsigned &value);
+   void ModifyRectX(double &value);
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index c3141940c61b0..01fdb49296694 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -15,7 +15,8 @@ Controller::Controller()
+     m_webgl(m_json_value),
+     m_fonts(m_json_value),
+     m_webgpu(m_json_value),
+-    m_webrtc(m_json_value)
++    m_webrtc(m_json_value),
++    m_tls(m_json_value)
+ {}
+ 
+ Controller::~Controller() = default;
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index 489d37f428c0a..3b4f191185014 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -13,6 +13,7 @@
+ #include "a_tools/fingerprint/fonts/fonts.h"
+ #include "a_tools/fingerprint/webgpu/webgpu.h"
+ #include "a_tools/fingerprint/webrtc/webrtc.h"
++#include "a_tools/fingerprint/tls/tls.h"
+ 
+ namespace fingerprint {
+ 
+@@ -31,6 +32,7 @@ public:
+   Fonts& GetFonts() { return m_fonts; }
+   WebGPU& GetWebGPU() { return m_webgpu; }
+   WebRTC& GetWebRTC() { return m_webrtc; }
++  TLS& GetTLS() { return m_tls; }
+ 
+ private:
+   Controller();
+@@ -46,6 +48,7 @@ private:
+   Fonts m_fonts;
+   WebGPU m_webgpu;
+   WebRTC m_webrtc;
++  TLS m_tls;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/fonts/fonts.h b/a_tools/fingerprint/fonts/fonts.h
+index d291441a71bbe..ff448df936910 100644
+--- a/a_tools/fingerprint/fonts/fonts.h
++++ b/a_tools/fingerprint/fonts/fonts.h
+@@ -17,10 +17,9 @@ public:
+ private:
+   explicit Fonts(const absl::optional<base::Value> &json_value);
+   ~Fonts() override;
+-  
++
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+-
+   int GetNoise();
+ 
+ private:
+diff --git a/a_tools/fingerprint/tls/tls.cc b/a_tools/fingerprint/tls/tls.cc
+new file mode 100644
+index 0000000000000..8961373077e88
+--- /dev/null
++++ b/a_tools/fingerprint/tls/tls.cc
+@@ -0,0 +1,48 @@
++#include "tls.h"
++#include "a_tools/fingerprint/utils/parse_json.h"
++#include <iostream>
++
++namespace fingerprint {
++
++TLS::TLS(const absl::optional<base::Value> &json_value) {
++  ParseJson(json_value);
++}
++
++TLS::~TLS() = default;
++
++bool TLS::ParseJson(const absl::optional<base::Value> &json_value) {
++  if (!json_value) return false;
++  if (const base::DictValue* dict = FindDict(json_value.value(), "tls"); dict) {
++    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
++      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        if (const base::DictValue* cipher_suit_dict = FindDict(params_dict, "cipher_suites"); cipher_suit_dict) {
++          if (const base::ListValue* add_list = FindList(cipher_suit_dict, "add"); add_list) {
++            for (auto& value : *add_list) {
++              m_adds.push_back(":+" + value.GetString());
++            }
++          }
++          if (const base::ListValue* sub_list = FindList(cipher_suit_dict, "sub"); sub_list) {
++            for (auto& value : *sub_list) {
++              m_subs.push_back(":-" + value.GetString());
++            }
++          }
++        }
++      }
++    }
++    return true;
++  }
++  return false;
++}
++
++void TLS::ModifyCipherSuites(std::string &command) {
++  if (m_enabled) {
++    for (auto s : m_adds) {
++      command.append(s);
++    }
++    for (auto s : m_subs) {
++      command.append(s);
++    }
++  }
++}
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/tls/tls.h b/a_tools/fingerprint/tls/tls.h
+new file mode 100644
+index 0000000000000..84b7a0690c8f4
+--- /dev/null
++++ b/a_tools/fingerprint/tls/tls.h
+@@ -0,0 +1,30 @@
++# pragma once
++
++#include "a_tools/fingerprint/base_fingerprint.h"
++#include "base/values.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++
++namespace fingerprint {
++
++class Controller;
++
++class TLS : public BaseFingerprint {
++public:
++  friend Controller;
++  TLS(const TLS&) = delete;
++  TLS& operator=(const TLS&) = delete;
++
++private:
++  explicit TLS(const absl::optional<base::Value> &json_value);
++  ~TLS() override;
++
++public:
++  bool ParseJson(const absl::optional<base::Value> &json_value) override;
++  void ModifyCipherSuites(std::string &command);
++
++private:
++  std::vector<std::string> m_adds;
++  std::vector<std::string> m_subs;
++};
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/utils/parse_json.cc b/a_tools/fingerprint/utils/parse_json.cc
+index f9be158e2397b..3bf4c105b23eb 100644
+--- a/a_tools/fingerprint/utils/parse_json.cc
++++ b/a_tools/fingerprint/utils/parse_json.cc
+@@ -10,6 +10,10 @@ const base::DictValue* FindDict(const base::DictValue *json_dict, std::string_vi
+   return json_dict->FindDict(key);
+ }
+ 
++const base::ListValue* FindList(const base::DictValue *json_dict, std::string_view key) {
++  return json_dict->FindList(key);
++}
++
+ bool FindBool(const base::DictValue *json_dict, std::string_view key, bool &value) {
+   std::optional<bool> key_value = json_dict->FindBool(key);
+   if (key_value.has_value()) {
+diff --git a/a_tools/fingerprint/utils/parse_json.h b/a_tools/fingerprint/utils/parse_json.h
+index 3f04005dd409c..83962363dadb0 100644
+--- a/a_tools/fingerprint/utils/parse_json.h
++++ b/a_tools/fingerprint/utils/parse_json.h
+@@ -7,6 +7,7 @@ namespace fingerprint {
+ 
+ const base::DictValue* FindDict(const base::Value &json_value, std::string_view key);
+ const base::DictValue* FindDict(const base::DictValue *json_dict, std::string_view key);
++const base::ListValue* FindList(const base::DictValue *json_dict, std::string_view key);
+ bool FindBool(const base::DictValue *json_dict, std::string_view key, bool &value);
+ bool FindDouble(const base::DictValue *json_dict, std::string_view key, double &value);
+ bool FindString(const base::DictValue *json_dict, std::string_view key, std::string &value);
+diff --git a/a_tools/fingerprint/webgl/webgl.h b/a_tools/fingerprint/webgl/webgl.h
+index 81e7fce5e7da5..e5cb7c5f6063d 100644
+--- a/a_tools/fingerprint/webgl/webgl.h
++++ b/a_tools/fingerprint/webgl/webgl.h
+@@ -18,10 +18,9 @@ public:
+ private:
+   explicit WebGL(const absl::optional<base::Value> &json_value);
+   ~WebGL() override;
+-  
++
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+-
+   std::string GetUnmaskedVendorWebgl();
+   std::string GetUnmaskedRendererWebgl();
+   void RandomShuffleExtensions(Vector<String> &extensions);
+diff --git a/a_tools/fingerprint/webgpu/webgpu.h b/a_tools/fingerprint/webgpu/webgpu.h
+index 9443bb674b4bd..600016de77898 100644
+--- a/a_tools/fingerprint/webgpu/webgpu.h
++++ b/a_tools/fingerprint/webgpu/webgpu.h
+@@ -18,10 +18,9 @@ public:
+ private:
+   explicit WebGPU(const absl::optional<base::Value> &json_value);
+   ~WebGPU() override;
+-  
++
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+-
+   void ModifyVendor(String &vendor);
+   void ModifyArchitecture(String &architecture);
+   void ModifyDevice(String &device);
+diff --git a/a_tools/fingerprint/webrtc/webrtc.cc b/a_tools/fingerprint/webrtc/webrtc.cc
+index 645735e972362..31088581382e0 100644
+--- a/a_tools/fingerprint/webrtc/webrtc.cc
++++ b/a_tools/fingerprint/webrtc/webrtc.cc
+@@ -1,5 +1,6 @@
+ #include "webrtc.h"
+ #include "a_tools/fingerprint/utils/parse_json.h"
++#include "third_party/webrtc/api/candidate.h"
+ 
+ namespace fingerprint {
+ 
+diff --git a/a_tools/fingerprint/webrtc/webrtc.h b/a_tools/fingerprint/webrtc/webrtc.h
+index 9b3c1102d785c..3abb9eb396653 100644
+--- a/a_tools/fingerprint/webrtc/webrtc.h
++++ b/a_tools/fingerprint/webrtc/webrtc.h
+@@ -4,7 +4,11 @@
+ #include "a_tools/fingerprint/base_fingerprint.h"
+ #include "base/values.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+-#include "third_party/webrtc/api/candidate.h"
++
++namespace webrtc {
++class SocketAddress;
++enum class IceCandidateType;
++}
+ 
+ namespace fingerprint {
+ 
+@@ -19,10 +23,9 @@ public:
+ private:
+   explicit WebRTC(const absl::optional<base::Value> &json_value);
+   ~WebRTC() override;
+-  
++
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+-
+   void ModifyAddress(webrtc::IceCandidateType type, webrtc::SocketAddress &address);
+ 
+ private:
+diff --git a/config.json b/config.json
+index 6d3beb50fb524..8720f3e5a5622 100644
+--- a/config.json
++++ b/config.json
+@@ -73,5 +73,16 @@
+         "port": 7777
+       }
+     }
++  },
++  "tls": {
++    "enabled": true,
++    "params": {
++      "cipher_suites": {
++        "add": [],
++        "sub": [
++          "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
++        ]
++      }
++    }
+   }
+ }
+diff --git a/content/browser/service_host/utility_process_host.cc b/content/browser/service_host/utility_process_host.cc
+index 9c88b20e11b4c..adf287e557445 100644
+--- a/content/browser/service_host/utility_process_host.cc
++++ b/content/browser/service_host/utility_process_host.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++// Yzhyi start
++#include "a_tools/fingerprint/controller.h"
++// Yzhyi end
++
+ #include "content/browser/service_host/utility_process_host.h"
+ 
+ #include <memory>
+@@ -367,6 +371,10 @@ bool UtilityProcessHost::StartProcess() {
+       std::make_unique<base::CommandLine>(exe_path);
+ #endif  // BUILDFLAG(IS_ANDROID)
+ 
++  // Yzhyi start
++  fingerprint::Controller::GetInstance().AppendCommandLine(cmd_line.get());
++  // Yzhyi end
++
+   cmd_line->AppendSwitchASCII(switches::kProcessType,
+                               switches::kUtilityProcess);
+   // Specify the type of utility process for debugging/profiling purposes.
+diff --git a/net/socket/ssl_client_socket_impl.cc b/net/socket/ssl_client_socket_impl.cc
+index 563823cf7a982..7f3cdb0a52a06 100644
+--- a/net/socket/ssl_client_socket_impl.cc
++++ b/net/socket/ssl_client_socket_impl.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++// Yzhyi start
++#include "a_tools/fingerprint/controller.h"
++// Yzhyi end
++
+ #include "net/socket/ssl_client_socket_impl.h"
+ 
+ #include <errno.h>
+@@ -765,6 +769,9 @@ int SSLClientSocketImpl::Init() {
+       command.append(SSL_CIPHER_get_name(cipher));
+     }
+   }
++  // Yzhyi start
++  fingerprint::Controller::GetInstance().GetTLS().ModifyCipherSuites(command);
++  // Yzhyi end
+ 
+   if (!SSL_set_strict_cipher_list(ssl_.get(), command.c_str())) {
+     LOG(ERROR) << "SSL_set_cipher_list('" << command << "') failed";
+@@ -780,6 +787,7 @@ int SSLClientSocketImpl::Init() {
+       SSL_SIGN_RSA_PSS_RSAE_SHA384,    SSL_SIGN_RSA_PKCS1_SHA384,
+       SSL_SIGN_RSA_PSS_RSAE_SHA512,    SSL_SIGN_RSA_PKCS1_SHA512,
+   };
++  // TODO: Yzhyi modify signature_algorithms in here
+   if (!SSL_set_verify_algorithm_prefs(ssl_.get(), kVerifyPrefs,
+                                       std::size(kVerifyPrefs))) {
+     return ERR_UNEXPECTED;
+-- 
+2.43.0
+

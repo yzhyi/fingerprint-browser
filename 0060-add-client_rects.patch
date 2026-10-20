@@ -1,0 +1,254 @@
+From 2897d47d68a71e826da1906209407f8c4ef7f200 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Tue, 25 Nov 2025 23:34:30 +0800
+Subject: [PATCH 60/68] add client_rects
+
+---
+ a_tools/BUILD.gn                              |  2 +
+ .../fingerprint/client_rects/client_rects.cc  | 41 +++++++++++++++++
+ .../fingerprint/client_rects/client_rects.h   | 27 ++++++++++++
+ a_tools/fingerprint/controller.cc             |  3 +-
+ a_tools/fingerprint/controller.h              |  3 ++
+ config.json                                   | 11 ++++-
+ .../blink/renderer/core/geometry/dom_rect.cc  | 44 +++++++++++++++++++
+ 7 files changed, 129 insertions(+), 2 deletions(-)
+ create mode 100644 a_tools/fingerprint/client_rects/client_rects.cc
+ create mode 100644 a_tools/fingerprint/client_rects/client_rects.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index 6b2b0221ba66e..e07ca4465709a 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -55,6 +55,8 @@ source_set("a_tools") {
+     "fingerprint/user_agent/user_agent.cc",
+     "fingerprint/language/language.h",
+     "fingerprint/language/language.cc",
++    "fingerprint/client_rects/client_rects.h",
++    "fingerprint/client_rects/client_rects.cc",
+   ]
+   deps = [
+     "//base/allocator/partition_allocator:raw_ptr",
+diff --git a/a_tools/fingerprint/client_rects/client_rects.cc b/a_tools/fingerprint/client_rects/client_rects.cc
+new file mode 100644
+index 0000000000000..a02e1fb5c1898
+--- /dev/null
++++ b/a_tools/fingerprint/client_rects/client_rects.cc
+@@ -0,0 +1,41 @@
++#include "./client_rects.h"
++#include "../utils/random.h"
++#include "../utils/parse_json.h"
++
++namespace fingerprint {
++
++ClientRects::ClientRects(const absl::optional<base::Value> &json_value) {
++  ParseJson(json_value);
++}
++
++ClientRects::~ClientRects() = default;
++
++bool ClientRects::ParseJson(const absl::optional<base::Value> &json_value) {
++  if (!json_value) return false;
++  if (const base::DictValue* dict = FindDict(json_value.value(), "client_rects"); dict) {
++    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
++      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        FindDouble(params_dict, "seed", m_seed);
++        FindDouble(params_dict, "noise_min", m_noise_min);
++        FindDouble(params_dict, "noise_max", m_noise_max);
++        FindDouble(params_dict, "noise_level", m_noise_level);
++
++        static Random rand(m_noise_min, m_noise_max, m_seed);
++        m_width_noise = rand.NextDouble() * m_noise_level;
++        m_height_noise = rand.NextDouble() * m_noise_level;
++      }
++    }
++    return true;
++  }
++  return false;
++}
++
++double ClientRects::GetWidthNoise() {
++  return m_width_noise;
++}
++
++double ClientRects::GetHeightNoise() {
++  return m_height_noise;
++}
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/client_rects/client_rects.h b/a_tools/fingerprint/client_rects/client_rects.h
+new file mode 100644
+index 0000000000000..914b527f14ac9
+--- /dev/null
++++ b/a_tools/fingerprint/client_rects/client_rects.h
+@@ -0,0 +1,27 @@
++# pragma once
++
++#include "../base_fingerprint.h"
++#include "base/values.h"
++#include "base/base_export.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++
++namespace fingerprint {
++
++FINGERPRINT_CLASS_DECLARE(ClientRects);
++
++public:
++  BASE_EXPORT double GetWidthNoise();
++  BASE_EXPORT double GetHeightNoise();
++
++private:
++  double m_seed{0};
++  double m_noise_min{0};
++  double m_noise_max{0};
++  double m_noise_level{1};
++  
++  double m_width_noise{0};
++  double m_height_noise{0};
++
++FINGERPRINT_CLASS_END();
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index 4db2a84065977..c000cb1d53a24 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -28,7 +28,8 @@ Controller::Controller()
+     m_navigator(m_json_value),
+     m_do_not_track(m_json_value),
+     m_user_agent(m_json_value),
+-    m_language(m_json_value)
++    m_language(m_json_value),
++    m_client_rects(m_json_value)
+ {
+ 
+   if (!m_command_line.get()->HasSwitch("type")) {
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index d4f4c3d0781f7..508bd8eb07f47 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -25,6 +25,7 @@
+ #include "./do_not_track/do_not_track.h"
+ #include "./user_agent/user_agent.h"
+ #include "./language/language.h"
++#include "./client_rects/client_rects.h"
+ 
+ namespace fingerprint {
+ 
+@@ -55,6 +56,7 @@ public:
+   DoNotTrack& GetDoNotTrack() { return m_do_not_track; }
+   UserAgent& GetUserAgent() { return m_user_agent; }
+   Language& GetLanguage() { return m_language; }
++  ClientRects& GetClientRects() { return m_client_rects; }
+ 
+ private:
+   Controller();
+@@ -84,6 +86,7 @@ private:
+   DoNotTrack m_do_not_track;
+   UserAgent m_user_agent;
+   Language m_language;
++  ClientRects m_client_rects;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/config.json b/config.json
+index f497ec6b26c8a..9eb389c197fe2 100644
+--- a/config.json
++++ b/config.json
+@@ -157,7 +157,7 @@
+     "enabled": false,
+     "params": {
+       "sample_rate": {
+-        "seed": 1,
++        "seed": 2,
+         "noise_min": -1,
+         "noise_max": 1
+       }
+@@ -219,5 +219,14 @@
+       "language": "zh-CN",
+       "languages": ["zh-CN", "zh"]
+     }
++  },
++  "client_rects": {
++    "enabled": true,
++    "params": {
++      "seed": 3,
++      "noise_min": 0,
++      "noise_max": 99,
++      "noise_level": 0.00001
++    }
+   }
+ }
+diff --git a/third_party/blink/renderer/core/geometry/dom_rect.cc b/third_party/blink/renderer/core/geometry/dom_rect.cc
+index 7bd7ac50d39c3..338fec9328295 100644
+--- a/third_party/blink/renderer/core/geometry/dom_rect.cc
++++ b/third_party/blink/renderer/core/geometry/dom_rect.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #include "third_party/blink/renderer/core/geometry/dom_rect.h"
+ 
+ #include "third_party/blink/renderer/bindings/core/v8/v8_dom_rect_init.h"
+@@ -13,15 +17,55 @@
+ namespace blink {
+ 
+ DOMRect* DOMRect::Create(double x, double y, double width, double height) {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &client_rects = fingerprint::Controller::GetInstance().GetClientRects(); client_rects.Enabled()) {
++    double new_width = width;
++    double new_height = height;
++    if (x > 0 && y > 0){
++      new_width += client_rects.GetWidthNoise();
++      new_height += client_rects.GetHeightNoise();
++    }
++    return MakeGarbageCollected<DOMRect>(x, y, new_width, new_height);
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return MakeGarbageCollected<DOMRect>(x, y, width, height);
+ }
+ 
+ DOMRect* DOMRect::FromRectF(const gfx::RectF& rect) {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &client_rects = fingerprint::Controller::GetInstance().GetClientRects(); client_rects.Enabled()) {
++    float new_width = rect.width();
++    float new_height = rect.height();
++    if (rect.x() > 0 && rect.y() > 0){
++      new_width += client_rects.GetWidthNoise();
++      new_height += client_rects.GetHeightNoise();
++    }
++    return MakeGarbageCollected<DOMRect>(rect.x(), rect.y(), new_width, new_height);
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return MakeGarbageCollected<DOMRect>(rect.x(), rect.y(), rect.width(),
+                                        rect.height());
+ }
+ 
+ DOMRect* DOMRect::fromRect(const DOMRectInit* other) {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &client_rects = fingerprint::Controller::GetInstance().GetClientRects(); client_rects.Enabled()) {
++    double new_width = other->width();
++    double new_height = other->height();
++    if (other->x() > 0 && other->y() > 0){
++      new_width += client_rects.GetWidthNoise();
++      new_height += client_rects.GetHeightNoise();
++    }
++    return MakeGarbageCollected<DOMRect>(other->x(), other->y(), new_width,
++                                        new_height);
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return MakeGarbageCollected<DOMRect>(other->x(), other->y(), other->width(),
+                                        other->height());
+ }
+-- 
+2.43.0
+

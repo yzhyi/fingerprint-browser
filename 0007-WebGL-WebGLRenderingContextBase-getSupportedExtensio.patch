@@ -1,0 +1,79 @@
+From b483505e01c3ac55ff228916ff68af939a8b85fd Mon Sep 17 00:00:00 2001
+From: yuzhengyi02 <yuzhengyi02@meituan.com>
+Date: Fri, 5 Sep 2025 16:44:37 +0800
+Subject: [PATCH 07/68] WebGL:
+ WebGLRenderingContextBase::getSupportedExtensions
+
+---
+ .../blink/renderer/core/html/html_element.cc  |  4 +--
+ .../webgl/webgl_rendering_context_base.cc     | 25 +++++++++++++++++++
+ 2 files changed, 27 insertions(+), 2 deletions(-)
+
+diff --git a/third_party/blink/renderer/core/html/html_element.cc b/third_party/blink/renderer/core/html/html_element.cc
+index 4ff9fbaedd0a2..d76e7f76f46da 100644
+--- a/third_party/blink/renderer/core/html/html_element.cc
++++ b/third_party/blink/renderer/core/html/html_element.cc
+@@ -3045,7 +3045,7 @@ int HTMLElement::offsetWidthForBinding() {
+     absl::optional<base::Value> yzhyi_command_value =
+       base::JSONReader::Read(yzhyi_command_str);
+     std::optional<bool> data = yzhyi_command_value->GetDict().FindBool("fonts");
+-    if (data.has_value() == true) {
++    if (data.has_value() && data.value()) {
+       result = result + getRandomIntForFoo2Modern();
+     }
+   }
+@@ -3069,7 +3069,7 @@ int HTMLElement::offsetHeightForBinding() {
+     absl::optional<base::Value> yzhyi_command_value =
+       base::JSONReader::Read(yzhyi_command_str);
+     std::optional<bool> data = yzhyi_command_value->GetDict().FindBool("fonts");
+-    if (data.has_value() == true) {
++    if (data.has_value() && data.value()) {
+       result = result + getRandomIntForFoo2Modern();
+     }
+   }
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index 2251820434af7..239a1bef9ef40 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -24,6 +24,9 @@
+  */
+ 
+ // Yzhyi start
++#include <algorithm> // std::shuffle
++#include <random>    // std::default_random_engine
++#include <chrono>    // std::chrono::system_clock
+ #include <iostream>
+ #include "base/command_line.h"
+ #include "third_party/blink/public/common/switches.h"
+@@ -4447,6 +4450,28 @@ WebGLRenderingContextBase::getSupportedExtensions() {
+     }
+   }
+ 
++  // Yzhyi start
++  const base::CommandLine *yzhyi_command_line =
++    base::CommandLine::ForCurrentProcess();
++  if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
++    std::string yzhyi_command_str = yzhyi_command_line->
++      GetSwitchValueASCII(switches::kYzhyi);
++    absl::optional<base::Value> yzhyi_command_value =
++      base::JSONReader::Read(yzhyi_command_str);
++    base::DictValue* webgl_dict = yzhyi_command_value->GetDict().FindDict("webgl");
++    base::DictValue* extensions_dict = webgl_dict->FindDict("extensions");
++    std::optional<bool> random_shuffle = extensions_dict->FindBool("random_shuffle");
++    if (random_shuffle.has_value() && random_shuffle.value()) {
++      // 使用当前时间作为随机数生成的种子
++      unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
++      std::default_random_engine engine(seed);
++      // 打乱result中的元素顺序
++      std::shuffle(result.begin(), result.end(), engine);
++    }
++  }
++  // TODO: can customize
++  // Yzhyi end
++
+   return result;
+ }
+ 
+-- 
+2.43.0
+

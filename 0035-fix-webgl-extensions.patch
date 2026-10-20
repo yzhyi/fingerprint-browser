@@ -1,0 +1,182 @@
+From dc667fae92702f97b69dbe325ef274ea2b6d1985 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Wed, 22 Oct 2025 00:27:30 +0800
+Subject: [PATCH 35/68] fix webgl extensions
+
+---
+ a_tools/fingerprint/webgl/webgl.cc            | 31 +++++++++++++------
+ a_tools/fingerprint/webgl/webgl.h             | 10 ++++--
+ config.json                                   | 13 +++++---
+ .../webgl/webgl_rendering_context_base.cc     | 14 +++++++--
+ 4 files changed, 49 insertions(+), 19 deletions(-)
+
+diff --git a/a_tools/fingerprint/webgl/webgl.cc b/a_tools/fingerprint/webgl/webgl.cc
+index 96b380aebdc07..83a7966b47a7c 100644
+--- a/a_tools/fingerprint/webgl/webgl.cc
++++ b/a_tools/fingerprint/webgl/webgl.cc
+@@ -19,7 +19,16 @@ bool WebGL::ParseJson(const absl::optional<base::Value> &json_value) {
+         FindString(params_dict, "unmasked_vendor_webgl", m_unmasked_vendor_webgl);
+         FindString(params_dict, "unmasked_renderer_webgl", m_unmasked_renderer_webgl);
+         if (const base::DictValue* extensions_dict = FindDict(params_dict, "extensions"); extensions_dict) {
+-          FindBool(extensions_dict, "random_shuffle", m_extensions_random_shuffle_enable);
++          if (const base::ListValue* add_list = FindList(extensions_dict, "add"); add_list) {
++            for (auto& value : *add_list) {
++              m_extensions_adds.push_back(value.GetString());
++            }
++          }
++          if (const base::ListValue* sub_list = FindList(extensions_dict, "sub"); sub_list) {
++            for (auto& value : *sub_list) {
++              m_extensions_subs.push_back(value.GetString());
++            }
++          }
+         }
+         if (const base::DictValue* pixels_dict = FindDict(params_dict, "pixels"); pixels_dict) {
+           FindDouble(pixels_dict, "x", m_pixels_x);
+@@ -48,15 +57,6 @@ std::string WebGL::GetUnmaskedRendererWebgl() {
+   return "";
+ }
+ 
+-// void WebGL::RandomShuffleExtensions(Vector<String> &extensions) {
+-//   if (m_enabled && m_extensions_random_shuffle_enable) {
+-//     const int fixed_seed = 123;
+-//     static std::mt19937 gen(fixed_seed);
+-//     // static std::mt19937 gen(std::random_device{}());
+-//     std::shuffle(extensions.begin(), extensions.end(), gen);
+-//   }
+-// }
+-
+ void WebGL::ModifyPixelsX(int &value) {
+   if (m_enabled) {
+     value += static_cast<int>(m_pixels_x);
+@@ -81,4 +81,15 @@ void WebGL::ModifyPixelsHeight(int &value) {
+   }
+ }
+ 
++void WebGL::ModifyExtensions(std::unordered_set<std::string> &extensions) {
++  if (m_enabled) {
++    for (auto it : m_extensions_adds) {
++      extensions.insert(it);
++    }
++    for (auto it : m_extensions_subs) {
++      extensions.erase(it);
++    }
++  }
++}
++
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/webgl/webgl.h b/a_tools/fingerprint/webgl/webgl.h
+index d54e8f2ed8c42..f2f061cb6a08f 100644
+--- a/a_tools/fingerprint/webgl/webgl.h
++++ b/a_tools/fingerprint/webgl/webgl.h
+@@ -1,5 +1,8 @@
+ # pragma once
+ 
++#include <vector>
++#include <unordered_set>
++
+ #include "a_tools/fingerprint/base_fingerprint.h"
+ #include "base/values.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+@@ -22,21 +25,22 @@ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+   std::string GetUnmaskedVendorWebgl();
+   std::string GetUnmaskedRendererWebgl();
+-  // TODO: Yzhyi
+-  // void RandomShuffleExtensions(Vector<String> &extensions);
+   void ModifyPixelsX(int &value);
+   void ModifyPixelsY(int &value);
+   void ModifyPixelsWidth(int &value);
+   void ModifyPixelsHeight(int &value);
++  void ModifyExtensions(std::unordered_set<std::string> &extensions);
++  // TODO: yzhyi handle getParameter
+ 
+ private:
+   std::string m_unmasked_vendor_webgl;
+   std::string m_unmasked_renderer_webgl;
+-  bool m_extensions_random_shuffle_enable{false};
+   double m_pixels_x{0};
+   double m_pixels_y{0};
+   double m_pixels_width{0};
+   double m_pixels_height{0};
++  std::vector<std::string> m_extensions_adds;
++  std::vector<std::string> m_extensions_subs;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/config.json b/config.json
+index cd96404a511b1..5f6f6c1e57949 100644
+--- a/config.json
++++ b/config.json
+@@ -12,14 +12,19 @@
+     }
+   },
+   "webgl": {
+-    "enabled": false,
++    "enabled": true,
+     "params": {
+       "#unmasked_vendor_webgl": "Google Inc. (Apple)",
+       "#unmasked_renderer_webgl": "ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Pro, Unspecified Version)",
+       "#unmasked_vendor_webgl": "Google Inc. (NVIDIA)",
+       "#unmasked_renderer_webgl": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11-30.0.14.9676)",
+       "extensions": {
+-        "random_shuffle": false
++        "add": [
++          "yzhyi"
++        ],
++        "sub": [
++          "ANGLE_instanced_arrays"
++        ]
+       },
+       "pixels": {
+         "x": 1,
+@@ -86,13 +91,13 @@
+     }
+   },
+   "device_memory": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "GiB": 2
+     }
+   },
+   "hardware_concurrency": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "cores": 8
+     }
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index dc729140a656c..a4bbf4f4fdc1c 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -25,6 +25,7 @@
+ 
+ // Yzhyi start
+ #include "a_tools/fingerprint/controller.h"
++#include <unordered_set>
+ // Yzhyi end
+ 
+ #include "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h"
+@@ -4418,8 +4419,17 @@ WebGLRenderingContextBase::getSupportedExtensions() {
+   }
+ 
+   // Yzhyi start
+-  // fingerprint::Controller::GetInstance().GetWebGL().RandomShuffleExtensions(result);
+-  // TODO: Yzhyi can customize
++  if (fingerprint::Controller::GetInstance().GetWebGL().Enabled()) {
++    std::unordered_set<std::string> tmp;
++    for (auto it : result) {
++      tmp.insert(it.Ascii());
++    }
++    fingerprint::Controller::GetInstance().GetWebGL().ModifyExtensions(tmp);
++    result.clear();
++    for (auto it : tmp) {
++      result.push_back(it);
++    }
++  }
+   // Yzhyi end
+ 
+   return result;
+-- 
+2.43.0
+

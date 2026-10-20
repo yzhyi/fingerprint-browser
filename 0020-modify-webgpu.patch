@@ -1,0 +1,468 @@
+From d4e26498ba910ced678e7eaa03bf0d0b55f9f5d3 Mon Sep 17 00:00:00 2001
+From: yuzhengyi02 <yuzhengyi02@meituan.com>
+Date: Thu, 18 Sep 2025 11:42:10 +0800
+Subject: [PATCH 20/68] modify webgpu
+
+---
+ a_tools/BUILD.gn                              |   2 +
+ a_tools/fingerprint/controller.cc             |  71 +---------
+ a_tools/fingerprint/controller.h              |  66 +---------
+ a_tools/fingerprint/webgpu/webgpu.cc          | 122 ++++++++++++++++++
+ a_tools/fingerprint/webgpu/webgpu.h           |  49 +++++++
+ config.json                                   |   2 +-
+ .../renderer/modules/webgpu/gpu_adapter.cc    |   2 +-
+ .../modules/webgpu/gpu_adapter_info.cc        |  12 +-
+ .../modules/webgpu/gpu_supported_limits.cc    |   2 +-
+ 9 files changed, 194 insertions(+), 134 deletions(-)
+ create mode 100644 a_tools/fingerprint/webgpu/webgpu.cc
+ create mode 100644 a_tools/fingerprint/webgpu/webgpu.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index cbfb7f46218d2..57832c3e7846e 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -10,6 +10,8 @@ static_library("a_tools") {
+   sources = [
+     "fingerprint/controller.cc",
+     "fingerprint/controller.h",
++    "fingerprint/webgpu/webgpu.h",
++    "fingerprint/webgpu/webgpu.cc",
+   ]
+ 
+   # 依赖的其他模块（必须显式声明，Chromium 不支持隐式依赖）
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index dbcb09253e9ea..3ed8360b3f4a0 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -22,15 +22,16 @@ int Controller::RandomInt(int min, int max) {
+ }
+ 
+ Controller::Controller()
+-  : m_command_line(base::CommandLine::ForCurrentProcess()) {
+-  if (m_command_line->HasSwitch(kFingerprint)) {
+-    m_json_str = m_command_line->
+-      GetSwitchValueASCII(kFingerprint);
+-    m_json_value = base::JSONReader::Read(m_json_str);
++  : m_command_line(base::CommandLine::ForCurrentProcess()),
++    m_enabled(m_command_line->HasSwitch(kFingerprint)),
++    m_json_str(m_enabled ? m_command_line->GetSwitchValueASCII(kFingerprint) : std::string{}),
++    m_json_value(m_enabled ? base::JSONReader::Read(m_json_str) : absl::nullopt),
++    m_webgpu(m_json_value)
++{
++  if (m_enabled) {
+     ParseJson();
+     ParseWebGL();
+     ParseFonts();
+-    ParseWebGPU();
+   }
+ }
+ 
+@@ -163,62 +164,4 @@ bool Controller::ParseFonts() {
+   return false;
+ }
+ 
+-bool Controller::ParseWebGPU() {
+-  base::DictValue* webgpu_dict = m_json_value->GetDict().FindDict("webgpu");
+-  if (webgpu_dict) {
+-    std::optional<bool> webgpu_enable = webgpu_dict->FindBool("enable");
+-    if (webgpu_enable.has_value() && webgpu_enable.value()) {
+-      m_webgpu_enable = webgpu_enable.value();
+-      base::DictValue* webgpu_params_dict = webgpu_dict->FindDict("params");
+-      if (webgpu_params_dict) {
+-        base::DictValue* webgpu_params_info_dict = webgpu_params_dict->FindDict("info");
+-        if (webgpu_params_info_dict) {
+-          std::string* webgpu_vendor = webgpu_params_info_dict->FindString("vendor");
+-          if (webgpu_vendor) {
+-            m_webgpu_vendor = *webgpu_vendor;
+-          }
+-          std::string* webgpu_architecture = webgpu_params_info_dict->FindString("architecture");
+-          if (webgpu_architecture) {
+-            m_webgpu_architecture = *webgpu_architecture;
+-          }
+-          std::string* webgpu_device = webgpu_params_info_dict->FindString("device");
+-          if (webgpu_device) {
+-            m_webgpu_device = *webgpu_device;
+-          }
+-          std::string* webgpu_description = webgpu_params_info_dict->FindString("description");
+-          if (webgpu_description) {
+-            m_webgpu_description = *webgpu_description;
+-          }
+-          std::optional<bool> webgpu_is_fallback_adapter = webgpu_params_info_dict->FindBool("is_fallback_adapter");
+-          if (webgpu_is_fallback_adapter.has_value()) {
+-            m_webgpu_is_fallback_adapter_initialized = true;
+-            m_webgpu_is_fallback_adapter = webgpu_is_fallback_adapter.value();
+-          }
+-        }
+-        base::DictValue* webgpu_params_limits_dict = webgpu_params_dict->FindDict("limits");
+-        if (webgpu_params_limits_dict) {
+-          for (auto it = webgpu_params_limits_dict->begin(); it != webgpu_params_limits_dict->end(); ++it) {
+-            // std::cout << it->first << ": " << it->second << ' ' << it->second.type() << std::endl;
+-            if (it->second.is_int()) {
+-              m_webgpu_limits[it->first] = it->second.GetInt();
+-            }
+-            else if (it->second.is_double()) {
+-              m_webgpu_limits[it->first] = it->second.GetDouble();
+-            }
+-          }
+-        }
+-        base::DictValue* webgpu_params_features_dict = webgpu_params_dict->FindDict("features");
+-        if (webgpu_params_features_dict) {
+-          for (auto it = webgpu_params_features_dict->begin(); it != webgpu_params_features_dict->end(); ++it) {
+-            // std::cout << it->first << ": " << it->second << ' ' << it->second.type() << std::endl;
+-            m_webgpu_features[it->first] = it->second.GetBool();
+-          }
+-        }
+-      }
+-    }
+-    return true;
+-  }
+-  return false;
+-}
+-
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index c4ddad7f9f2f0..a9ccbc5d399b3 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -13,6 +13,8 @@
+ #include "content/common/content_export.h"
+ #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+ 
++#include "a_tools/fingerprint/webgpu/webgpu.h"
++
+ namespace fingerprint {
+ 
+ CONTENT_EXPORT extern const char kFingerprint[];
+@@ -121,54 +123,7 @@ public:
+                      static_cast<int>(m_fonts_noise_max));
+   }
+ 
+-  // webgpu
+-  bool ParseWebGPU();
+-  bool WebGPUEnable() {
+-    return m_webgpu_enable;
+-  }
+-  void ModifyWebGPUVendor(String &vendor) {
+-    if (m_webgpu_enable && !m_webgpu_vendor.empty()) {
+-      vendor = String(m_webgpu_vendor);
+-    }
+-  }
+-  void ModifyWebGPUArchitecture(String &architecture) {
+-    if (m_webgpu_enable && !m_webgpu_architecture.empty()) {
+-      architecture = String(m_webgpu_architecture);
+-    }
+-  }
+-  void ModifyWebGPUDevice(String &device) {
+-    if (m_webgpu_enable && !m_webgpu_device.empty()) {
+-      device = String(m_webgpu_device);
+-    }
+-  }
+-  void ModifyWebGPUDescription(String &description) {
+-    if (m_webgpu_enable && !m_webgpu_description.empty()) {
+-      description = String(m_webgpu_description);
+-    }
+-  }
+-  void ModifyWebGPUIsFallbackAdapter(bool &is_fallback_adapter) {
+-    if (m_webgpu_enable && m_webgpu_is_fallback_adapter_initialized) {
+-      is_fallback_adapter = m_webgpu_is_fallback_adapter;
+-    }
+-  }
+-  void ModifyWebGPULimits(String name, uint32_t &value) {
+-    std::string key = name.Ascii();
+-    if (m_webgpu_limits.contains(key)) {
+-      value = m_webgpu_limits[key];
+-    }
+-  }
+-  void ModifyWebGPULimits(String name, uint64_t &value) {
+-    std::string key = name.Ascii();
+-    if (m_webgpu_limits.contains(key)) {
+-      value = m_webgpu_limits[key];
+-    }
+-  }
+-  std::unordered_map<std::string, bool> GetWebGPUFeatures() {
+-    if (m_webgpu_enable) {
+-      return m_webgpu_features;
+-    }
+-    return {};
+-  }
++  WebGPU& GetWebGPU() { return m_webgpu; }
+ 
+ private:
+   Controller();
+@@ -177,6 +132,7 @@ private:
+   Controller& operator=(const Controller&) = delete;
+ 
+   std::unique_ptr<const base::CommandLine> m_command_line;
++  bool m_enabled;
+   std::string m_json_str;
+   absl::optional<base::Value> m_json_value;
+ 
+@@ -204,19 +160,7 @@ private:
+   double m_fonts_noise_min{0};
+   double m_fonts_noise_max{0};
+ 
+-  // webgpu
+-  bool m_webgpu_enable{false};
+-  // info
+-  std::string m_webgpu_vendor;
+-  std::string m_webgpu_architecture;
+-  std::string m_webgpu_device;
+-  std::string m_webgpu_description;
+-  bool m_webgpu_is_fallback_adapter_initialized{false};
+-  bool m_webgpu_is_fallback_adapter{false};
+-  // limits
+-  std::unordered_map<std::string, uint64_t> m_webgpu_limits;
+-  // features
+-  std::unordered_map<std::string, bool> m_webgpu_features;
++  WebGPU m_webgpu;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/webgpu/webgpu.cc b/a_tools/fingerprint/webgpu/webgpu.cc
+new file mode 100644
+index 0000000000000..78faf0c9f0638
+--- /dev/null
++++ b/a_tools/fingerprint/webgpu/webgpu.cc
+@@ -0,0 +1,122 @@
++#include "webgpu.h"
++#include <optional>
++
++namespace fingerprint {
++
++WebGPU::WebGPU(absl::optional<base::Value> &json_value) {
++  ParseJson(json_value);
++}
++
++WebGPU::~WebGPU() = default;
++
++bool WebGPU::ParseJson(absl::optional<base::Value> &json_value) {
++  if (!json_value) return false;
++  base::DictValue* dict = json_value->GetDict().FindDict("webgpu");
++  if (dict) {
++    std::optional<bool> enabled = dict->FindBool("enabled");
++    if (enabled.has_value() && enabled.value()) {
++      m_enabled = enabled.value();
++      base::DictValue* params_dict = dict->FindDict("params");
++      if (params_dict) {
++        base::DictValue* params_info_dict = params_dict->FindDict("info");
++        if (params_info_dict) {
++          std::string* vendor = params_info_dict->FindString("vendor");
++          if (vendor) {
++            m_vendor = *vendor;
++          }
++          std::string* architecture = params_info_dict->FindString("architecture");
++          if (architecture) {
++            m_architecture = *architecture;
++          }
++          std::string* device = params_info_dict->FindString("device");
++          if (device) {
++            m_device = *device;
++          }
++          std::string* description = params_info_dict->FindString("description");
++          if (description) {
++            m_description = *description;
++          }
++          std::optional<bool> is_fallback_adapter = params_info_dict->FindBool("is_fallback_adapter");
++          if (is_fallback_adapter.has_value()) {
++            m_is_fallback_adapter_initialized = true;
++            m_is_fallback_adapter = is_fallback_adapter.value();
++          }
++        }
++        base::DictValue* params_limits_dict = params_dict->FindDict("limits");
++        if (params_limits_dict) {
++          for (auto it = params_limits_dict->begin(); it != params_limits_dict->end(); ++it) {
++            // std::cout << it->first << ": " << it->second << ' ' << it->second.type() << std::endl;
++            if (it->second.is_int()) {
++              m_limits[it->first] = it->second.GetInt();
++            }
++            else if (it->second.is_double()) {
++              m_limits[it->first] = it->second.GetDouble();
++            }
++          }
++        }
++        base::DictValue* params_features_dict = params_dict->FindDict("features");
++        if (params_features_dict) {
++          for (auto it = params_features_dict->begin(); it != params_features_dict->end(); ++it) {
++            // std::cout << it->first << ": " << it->second << ' ' << it->second.type() << std::endl;
++            m_features[it->first] = it->second.GetBool();
++          }
++        }
++      }
++    }
++    return true;
++  }
++  return false;
++}
++
++void WebGPU::ModifyVendor(String &vendor) {
++  if (m_enabled && !m_vendor.empty()) {
++    vendor = String(m_vendor);
++  }
++}
++
++void WebGPU::ModifyArchitecture(String &architecture) {
++  if (m_enabled && !m_architecture.empty()) {
++    architecture = String(m_architecture);
++  }
++}
++
++void WebGPU::ModifyDevice(String &device) {
++  if (m_enabled && !m_device.empty()) {
++    device = String(m_device);
++  }
++}
++
++void WebGPU::ModifyDescription(String &description) {
++  if (m_enabled && !m_description.empty()) {
++    description = String(m_description);
++  }
++}
++
++void WebGPU::ModifyIsFallbackAdapter(bool &is_fallback_adapter) {
++  if (m_enabled && m_is_fallback_adapter_initialized) {
++    is_fallback_adapter = m_is_fallback_adapter;
++  }
++}
++
++void WebGPU::ModifyLimits(String name, uint32_t &value) {
++  std::string key = name.Ascii();
++  if (m_limits.contains(key)) {
++    value = m_limits[key];
++  }
++}
++
++void WebGPU::ModifyLimits(String name, uint64_t &value) {
++  std::string key = name.Ascii();
++  if (m_limits.contains(key)) {
++    value = m_limits[key];
++  }
++}
++
++std::unordered_map<std::string, bool> WebGPU::GetFeatures() {
++  if (m_enabled) {
++    return m_features;
++  }
++  return {};
++}
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/webgpu/webgpu.h b/a_tools/fingerprint/webgpu/webgpu.h
+new file mode 100644
+index 0000000000000..4bbb4281f877a
+--- /dev/null
++++ b/a_tools/fingerprint/webgpu/webgpu.h
+@@ -0,0 +1,49 @@
++# pragma once
++
++#include <string>
++#include <unordered_map>
++#include "base/values.h"
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++
++namespace fingerprint {
++
++class Controller;
++
++class WebGPU {
++  friend Controller;
++private:
++  WebGPU(absl::optional<base::Value> &json_value);
++  ~WebGPU();
++  WebGPU(const WebGPU&) = delete;
++  WebGPU& operator=(const WebGPU&) = delete;
++  
++public:
++  bool ParseJson(absl::optional<base::Value> &json_value);
++  bool Enabled() { return m_enabled; }
++
++  void ModifyVendor(String &vendor);
++  void ModifyArchitecture(String &architecture);
++  void ModifyDevice(String &device);
++  void ModifyDescription(String &description);
++  void ModifyIsFallbackAdapter(bool &is_fallback_adapter);
++  void ModifyLimits(String name, uint32_t &value);
++  void ModifyLimits(String name, uint64_t &value);
++  std::unordered_map<std::string, bool> GetFeatures();
++
++private:
++  bool m_enabled{false};
++  // info
++  std::string m_vendor;
++  std::string m_architecture;
++  std::string m_device;
++  std::string m_description;
++  bool m_is_fallback_adapter_initialized{false};
++  bool m_is_fallback_adapter{false};
++  // limits
++  std::unordered_map<std::string, uint64_t> m_limits;
++  // features
++  std::unordered_map<std::string, bool> m_features;
++};
++
++} // namespace fingerprint
+diff --git a/config.json b/config.json
+index 9d054daa1d395..ee6d78eecacb0 100644
+--- a/config.json
++++ b/config.json
+@@ -36,7 +36,7 @@
+     }
+   },
+   "webgpu": {
+-    "enable": true,
++    "enabled": true,
+     "params": {
+       "info": {
+         "vendor": "1",
+diff --git a/third_party/blink/renderer/modules/webgpu/gpu_adapter.cc b/third_party/blink/renderer/modules/webgpu/gpu_adapter.cc
+index 13095da697b0a..5c6d16b18e354 100644
+--- a/third_party/blink/renderer/modules/webgpu/gpu_adapter.cc
++++ b/third_party/blink/renderer/modules/webgpu/gpu_adapter.cc
+@@ -42,7 +42,7 @@ GPUSupportedFeatures* MakeFeatureNameSet(wgpu::Adapter adapter) {
+   const auto features_span = UNSAFE_BUFFERS(base::span<const wgpu::FeatureName>(
+       supported_features.features, supported_features.featureCount));
+   // Yzhyi start
+-  std::unordered_map<std::string, bool> features_map = fingerprint::Controller::GetInstance().GetWebGPUFeatures();
++  std::unordered_map<std::string, bool> features_map = fingerprint::Controller::GetInstance().GetWebGPU().GetFeatures();
+   // Yzhyi end
+   for (const auto& f : features_span) {
+     auto feature_name_enum_optional =
+diff --git a/third_party/blink/renderer/modules/webgpu/gpu_adapter_info.cc b/third_party/blink/renderer/modules/webgpu/gpu_adapter_info.cc
+index f8755706978d6..0b7d85f30aee9 100644
+--- a/third_party/blink/renderer/modules/webgpu/gpu_adapter_info.cc
++++ b/third_party/blink/renderer/modules/webgpu/gpu_adapter_info.cc
+@@ -40,12 +40,12 @@ GPUAdapterInfo::GPUAdapterInfo(const String& vendor,
+       vk_driver_version_(vk_driver_version),
+       power_preference_(power_preference) {
+   // Yzhyi start
+-  if (fingerprint::Controller::GetInstance().WebGPUEnable()) {
+-      fingerprint::Controller::GetInstance().ModifyWebGPUVendor(vendor_);
+-      fingerprint::Controller::GetInstance().ModifyWebGPUArchitecture(architecture_);
+-      fingerprint::Controller::GetInstance().ModifyWebGPUDevice(device_);
+-      fingerprint::Controller::GetInstance().ModifyWebGPUDescription(description_);
+-      fingerprint::Controller::GetInstance().ModifyWebGPUIsFallbackAdapter(is_fallback_adapter_);
++  if (fingerprint::Controller::GetInstance().GetWebGPU().Enabled()) {
++      fingerprint::Controller::GetInstance().GetWebGPU().ModifyVendor(vendor_);
++      fingerprint::Controller::GetInstance().GetWebGPU().ModifyArchitecture(architecture_);
++      fingerprint::Controller::GetInstance().GetWebGPU().ModifyDevice(device_);
++      fingerprint::Controller::GetInstance().GetWebGPU().ModifyDescription(description_);
++      fingerprint::Controller::GetInstance().GetWebGPU().ModifyIsFallbackAdapter(is_fallback_adapter_);
+   }
+   // Yzhyi end
+ }
+diff --git a/third_party/blink/renderer/modules/webgpu/gpu_supported_limits.cc b/third_party/blink/renderer/modules/webgpu/gpu_supported_limits.cc
+index 72a8d857165b9..9e0167b2b3124 100644
+--- a/third_party/blink/renderer/modules/webgpu/gpu_supported_limits.cc
++++ b/third_party/blink/renderer/modules/webgpu/gpu_supported_limits.cc
+@@ -132,7 +132,7 @@ bool GPUSupportedLimits::Populate(
+ #define X(name)                                                              \
+   decltype(GPUSupportedLimits::ComboLimits::name) GPUSupportedLimits::name() \
+       const {                                                                \
+-    fingerprint::Controller::GetInstance().ModifyWebGPULimits(String(#name), \
++    fingerprint::Controller::GetInstance().GetWebGPU().ModifyLimits(String(#name), \
+     const_cast<std::remove_const_t<decltype(limits_.name)>&>(limits_.name)); \
+     return limits_.name;                                                     \
+   }
+-- 
+2.43.0
+

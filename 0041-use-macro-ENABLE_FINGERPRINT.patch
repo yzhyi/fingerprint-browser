@@ -1,0 +1,715 @@
+From d11f55de252186e18de982b9a62a1aa9c26b50fc Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Mon, 27 Oct 2025 10:18:48 +0800
+Subject: [PATCH 41/68] use macro ENABLE_FINGERPRINT
+
+---
+ a_tools/BUILD.gn                              | 14 ++++++++++---
+ base/BUILD.gn                                 |  5 ++---
+ base/command_line.cc                          | 12 +++++------
+ base/json/json_reader_unittest.cc             |  2 +-
+ config.json                                   |  2 +-
+ .../renderer_host/render_process_host_impl.cc |  8 ++++----
+ .../service_host/utility_process_host.cc      |  8 ++++----
+ net/socket/ssl_client_socket_impl.cc          |  8 ++++----
+ .../approximated_device_memory.cc             |  8 ++++----
+ .../blink/renderer/core/css/css_font_face.cc  |  8 ++++----
+ .../frame/navigator_concurrent_hardware.cc    |  8 ++++----
+ .../core/html/canvas/html_canvas_element.cc   | 16 +++++++--------
+ .../blink/renderer/core/html/html_element.cc  | 12 +++++------
+ .../renderer/modules/battery/battery_status.h |  8 ++++----
+ .../canvas2d/canvas_2d_recorder_context.cc    |  8 ++++----
+ .../webgl/webgl_rendering_context_base.cc     | 20 +++++++++----------
+ .../renderer/modules/webgpu/gpu_adapter.cc    | 16 +++++++--------
+ .../modules/webgpu/gpu_adapter_info.cc        |  8 ++++----
+ .../modules/webgpu/gpu_supported_limits.cc    |  8 ++++----
+ .../rtc_ice_candidate_platform.cc             |  8 ++++----
+ 20 files changed, 97 insertions(+), 90 deletions(-)
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index 1762565fe683f..352b1fa327983 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -1,6 +1,14 @@
+-# TODO: Yzhyi add compile flags and use macro to control enable
+-source_set("a_tools_sources") {
+-  visibility = [ "*" ]  # 限制访问范围
++config("a_tools_config") {
++  defines = [
++    "ENABLE_FINGERPRINT"
++  ]
++  #ifdef ENABLE_FINGERPRINT
++  #endif // ENABLE_FINGERPRINT
++}
++
++source_set("a_tools") {
++  visibility = [ "*" ]
++  all_dependent_configs = [ ":a_tools_config" ]
+   sources = [
+     "fingerprint/controller.h",
+     "fingerprint/controller.cc",
+diff --git a/base/BUILD.gn b/base/BUILD.gn
+index 6752e6ebc2f3b..7f282c689e640 100644
+--- a/base/BUILD.gn
++++ b/base/BUILD.gn
+@@ -2501,9 +2501,8 @@ component("base") {
+     configs += [ "//build/config/compiler:optimize_max" ]
+   }
+ 
+-  # Yzhyi start
+-  deps += [ "//a_tools:a_tools_sources" ]
+-  # Yzhyi end
++  # ENABLE_FINGERPRINT
++  deps += [ "//a_tools:a_tools" ]
+ }
+ 
+ rust_bindgen("logging_log_severity_bindgen") {
+diff --git a/base/command_line.cc b/base/command_line.cc
+index a99f1163384f2..b604c9e0466cd 100644
+--- a/base/command_line.cc
++++ b/base/command_line.cc
+@@ -2,14 +2,14 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+-// Yzhyi start
++#ifdef ENABLE_FINGERPRINT
+ #include "content/public/common/content_switches.h"
+ #include "base/json/json_reader.h"
+ #include "base/values.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ #include "third_party/libc++/src/include/__filesystem/path.h"
+ #include "base/files/file_util.h"
+-// Yzhyi end
++#endif // ENABLE_FINGERPRINT
+ 
+ #include "base/command_line.h"
+ 
+@@ -632,7 +632,7 @@ void CommandLine::ParseFromString(StringViewType command_line) {
+ 
+ #endif  // BUILDFLAG(IS_WIN)
+ 
+-// Yzhyi start
++#ifdef ENABLE_FINGERPRINT
+ bool IsJsonFile(const std::string& filename) {
+     std::filesystem::path filePath(filename);
+     return filePath.extension() == ".json";
+@@ -650,7 +650,7 @@ bool IsValidJson(const std::string& jsonString) {
+     }
+     return true;
+ }
+-// Yzhyi end
++#endif // ENABLE_FINGERPRINT
+ 
+ void CommandLine::AppendSwitchesAndArguments(span<const StringType> argv) {
+   bool parse_switches = true;
+@@ -669,7 +669,7 @@ void CommandLine::AppendSwitchesAndArguments(span<const StringType> argv) {
+     parse_switches &= (arg != kSwitchTerminator);
+     if (parse_switches && IsSwitch(arg, &switch_string, &switch_value)) {
+ 
+-      // Yzhyi start
++      #ifdef ENABLE_FINGERPRINT
+       const char kFingerprint[] = "--fp";
+       if (switch_string == CommandLine::StringType(kFingerprint)) {
+         if (IsJsonFile(switch_value)) {
+@@ -681,7 +681,7 @@ void CommandLine::AppendSwitchesAndArguments(span<const StringType> argv) {
+           }
+         }
+       }
+-      // Yzhyi end
++      #endif // ENABLE_FINGERPRINT
+ 
+ #if BUILDFLAG(IS_WIN)
+       if (is_parsed_from_string &&
+diff --git a/base/json/json_reader_unittest.cc b/base/json/json_reader_unittest.cc
+index 3d13ebab90add..0f5866efab8a8 100644
+--- a/base/json/json_reader_unittest.cc
++++ b/base/json/json_reader_unittest.cc
+@@ -52,7 +52,7 @@ base::HeapArray<char> MakeNotNullTerminatedInput(const char* input) {
+ 
+ namespace base {
+ 
+-TEST(JSONReaderTest, Yzhyi) {
++TEST(JSONReaderTest, YZY) {
+   std::optional<Value> root = JSONReader::Read("{\"name\": \"yzy\"}");
+   ASSERT_TRUE(root);
+   const Value::Dict* root_dict = root->GetIfDict();
+diff --git a/config.json b/config.json
+index 0567e18a08c21..c1cc268f5806f 100644
+--- a/config.json
++++ b/config.json
+@@ -20,7 +20,7 @@
+       "#unmasked_renderer_webgl": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11-30.0.14.9676)",
+       "extensions": {
+         "add": [
+-          "yzhyi"
++          "TEST"
+         ],
+         "sub": [
+           "ANGLE_instanced_arrays"
+diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
+index 94c773b994ad4..897756c082cff 100644
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -5,9 +5,9 @@
+ // Represents the browser side of the browser <--> renderer communication
+ // channel. There will be one RenderProcessHost per renderer process.
+ 
+-// Yzhyi start
++#ifdef ENABLE_FINGERPRINT
+ #include "a_tools/fingerprint/controller.h"
+-// Yzhyi end
++#endif // ENABLE_FINGERPRINT
+ 
+ #include "content/browser/renderer_host/render_process_host_impl.h"
+ 
+@@ -3365,9 +3365,9 @@ static void AppendCompositorCommandLineFlags(base::CommandLine* command_line) {
+ void RenderProcessHostImpl::AppendRendererCommandLine(
+     ::base::CommandLine* command_line) {
+ 
+-  // Yzhyi start
++  #ifdef ENABLE_FINGERPRINT
+   fingerprint::Controller::GetInstance().AppendCommandLine(command_line);
+-  // Yzhyi end
++  #endif // ENABLE_FINGERPRINT
+ 
+   // Pass the process type first, so it shows first in process listings.
+   command_line->AppendSwitchASCII(switches::kProcessType,
+diff --git a/content/browser/service_host/utility_process_host.cc b/content/browser/service_host/utility_process_host.cc
+index adf287e557445..3d71f65f7de51 100644
+--- a/content/browser/service_host/utility_process_host.cc
++++ b/content/browser/service_host/utility_process_host.cc
+@@ -2,9 +2,9 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+-// Yzhyi start
++#ifdef ENABLE_FINGERPRINT
+ #include "a_tools/fingerprint/controller.h"
+-// Yzhyi end
++#endif // ENABLE_FINGERPRINT
+ 
+ #include "content/browser/service_host/utility_process_host.h"
+ 
+@@ -371,9 +371,9 @@ bool UtilityProcessHost::StartProcess() {
+       std::make_unique<base::CommandLine>(exe_path);
+ #endif  // BUILDFLAG(IS_ANDROID)
+ 
+-  // Yzhyi start
++  #ifdef ENABLE_FINGERPRINT
+   fingerprint::Controller::GetInstance().AppendCommandLine(cmd_line.get());
+-  // Yzhyi end
++  #endif // ENABLE_FINGERPRINT
+ 
+   cmd_line->AppendSwitchASCII(switches::kProcessType,
+                               switches::kUtilityProcess);
+diff --git a/net/socket/ssl_client_socket_impl.cc b/net/socket/ssl_client_socket_impl.cc
+index ca51d0d78237b..1b92a0c06cf5a 100644
+--- a/net/socket/ssl_client_socket_impl.cc
++++ b/net/socket/ssl_client_socket_impl.cc
+@@ -2,9 +2,9 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+-// Yzhyi start
++#ifdef ENABLE_FINGERPRINT
+ #include "a_tools/fingerprint/controller.h"
+-// Yzhyi end
++#endif // ENABLE_FINGERPRINT
+ 
+ #include "net/socket/ssl_client_socket_impl.h"
+ 
+@@ -771,9 +771,9 @@ int SSLClientSocketImpl::Init() {
+     }
+   }
+ 
+-  // Yzhyi start
++  #ifdef ENABLE_FINGERPRINT
+   fingerprint::Controller::GetInstance().GetTLS().ModifyCipherSuites(command);
+-  // Yzhyi end
++  #endif // ENABLE_FINGERPRINT
+ 
+   if (!SSL_set_strict_cipher_list(ssl_.get(), command.c_str())) {
+     LOG(ERROR) << "SSL_set_cipher_list('" << command << "') failed";
+diff --git a/third_party/blink/common/device_memory/approximated_device_memory.cc b/third_party/blink/common/device_memory/approximated_device_memory.cc
+index 843bf452ca582..871bc4e8f2c73 100644
+--- a/third_party/blink/common/device_memory/approximated_device_memory.cc
++++ b/third_party/blink/common/device_memory/approximated_device_memory.cc
+@@ -2,9 +2,9 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+-// Yzhyi start
++#ifdef ENABLE_FINGERPRINT
+ #include "a_tools/fingerprint/controller.h"
+-// Yzhyi end
++#endif // ENABLE_FINGERPRINT
+ 
+ #include "third_party/blink/public/common/device_memory/approximated_device_memory.h"
+ 
+@@ -29,9 +29,9 @@ void ApproximatedDeviceMemory::Initialize() {
+ // static
+ float ApproximatedDeviceMemory::GetApproximatedDeviceMemory() {
+ 
+-  // Yzhyi start
++  #ifdef ENABLE_FINGERPRINT
+   fingerprint::Controller::GetInstance().GetDeviceMemory().ModifyDeviceMemory(approximated_device_memory_gb_);
+-  // Yzhyi end
++  #endif // ENABLE_FINGERPRINT
+ 
+   return approximated_device_memory_gb_;
+ }
+diff --git a/third_party/blink/renderer/core/css/css_font_face.cc b/third_party/blink/renderer/core/css/css_font_face.cc
+index bea7fa7f22335..e40a2fc7374e4 100644
+--- a/third_party/blink/renderer/core/css/css_font_face.cc
++++ b/third_party/blink/renderer/core/css/css_font_face.cc
+@@ -23,9 +23,9 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+-// Yzhyi start
++#ifdef ENABLE_FINGERPRINT
+ #include "a_tools/fingerprint/controller.h"
+-// Yzhyi end
++#endif // ENABLE_FINGERPRINT
+ 
+ #include "third_party/blink/renderer/core/css/css_font_face.h"
+ 
+@@ -253,12 +253,12 @@ void CSSFontFace::Load(const FontDescription& font_description) {
+       if (source->IsLocalNonBlocking()) {
+         if (source->IsLocalFontAvailable(font_description)) {
+ 
+-          // Yzhyi start
++          #ifdef ENABLE_FINGERPRINT
+           if (fingerprint::Controller::GetInstance().GetFonts().Enabled() &&  fingerprint::RandomInt(0, 9) < 2) {
+             SetLoadStatus(FontFace::kError); // TODO: Yzhyi set this can pass creepjs
+             return;
+           }
+-          // Yzhyi end
++          #endif // ENABLE_FINGERPRINT
+ 
+           SetLoadStatus(FontFace::kLoaded);
+           return;
+diff --git a/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc b/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc
+index 6c5166ae3d407..76bceb65014c4 100644
+--- a/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc
++++ b/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc
+@@ -2,9 +2,9 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+-// Yzhyi start
++#ifdef ENABLE_FINGERPRINT
+ #include "a_tools/fingerprint/controller.h"
+-// Yzhyi end
++#endif // ENABLE_FINGERPRINT
+ 
+ #include "third_party/blink/renderer/core/frame/navigator_concurrent_hardware.h"
+ 
+@@ -14,11 +14,11 @@ namespace blink {
+ 
+ unsigned NavigatorConcurrentHardware::hardwareConcurrency() const {
+ 
+-  // Yzhyi start
++  #ifdef ENABLE_FINGERPRINT
+   if (fingerprint::Controller::GetInstance().GetHardwareConcurrency().Enabled()) {
+     return fingerprint::Controller::GetInstance().GetHardwareConcurrency().ModifyHardwareConcurrency(static_cast<unsigned>(base::SysInfo::NumberOfProcessors()));
+   }
+-  // Yzhyi end
++  #endif // ENABLE_FINGERPRINT
+ 
+   return static_cast<unsigned>(base::SysInfo::NumberOfProcessors());
+ }
+diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+index a235cdc90fc4f..26b679eefe0d7 100644
+--- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
++++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+@@ -25,9 +25,9 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+-// Yzhyi start
++#ifdef ENABLE_FINGERPRINT
+ #include "a_tools/fingerprint/controller.h"
+-// Yzhyi end
++#endif // ENABLE_FINGERPRINT
+ 
+ #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
+ 
+@@ -535,9 +535,9 @@ void HTMLCanvasElement::setWidth(unsigned value,
+                                  ExceptionState& exception_state) {
+   if (SizeChangesAreAllowed(exception_state)) {
+ 
+-    // Yzhyi start
++    #ifdef ENABLE_FINGERPRINT
+     fingerprint::Controller::GetInstance().GetCanvas().ModifyWidth(value);
+-    // Yzhyi end
++    #endif // ENABLE_FINGERPRINT
+ 
+     SetUnsignedIntegralAttribute(html_names::kWidthAttr, value,
+                                  kDefaultCanvasWidth);
+@@ -548,9 +548,9 @@ void HTMLCanvasElement::setHeight(unsigned value,
+                                   ExceptionState& exception_state) {
+   if (SizeChangesAreAllowed(exception_state)) {
+ 
+-    // Yzhyi start
++    #ifdef ENABLE_FINGERPRINT
+     fingerprint::Controller::GetInstance().GetCanvas().ModifyHeight(value);
+-    // Yzhyi end
++    #endif // ENABLE_FINGERPRINT
+ 
+     SetUnsignedIntegralAttribute(html_names::kHeightAttr, value,
+                                  kDefaultCanvasHeight);
+@@ -1441,9 +1441,9 @@ String HTMLCanvasElement::ToDataURLInternal(const String& mime_type,
+           "CanvasReadback", "data_url", data_url.Utf8(), "noised", noised);
+     }
+ 
+-    // Yzhyi start
++    #ifdef ENABLE_FINGERPRINT
+     data_url = String(fingerprint::Controller::GetInstance().GetCanvas().ModifyDataURL(data_url.Ascii()));
+-    // Yzhyi end
++    #endif // ENABLE_FINGERPRINT
+ 
+     return data_url;
+   }
+diff --git a/third_party/blink/renderer/core/html/html_element.cc b/third_party/blink/renderer/core/html/html_element.cc
+index e9fc19dc3a0af..c5a9e454c6662 100644
+--- a/third_party/blink/renderer/core/html/html_element.cc
++++ b/third_party/blink/renderer/core/html/html_element.cc
+@@ -23,9 +23,9 @@
+  *
+  */
+ 
+-// Yzhyi start
++#ifdef ENABLE_FINGERPRINT
+ #include "a_tools/fingerprint/controller.h"
+-// Yzhyi end
++#endif // ENABLE_FINGERPRINT
+ 
+ #include "third_party/blink/renderer/core/html/html_element.h"
+ 
+@@ -3021,9 +3021,9 @@ int HTMLElement::offsetWidthForBinding() {
+     result = AdjustedOffsetForZoom(layout_object->OffsetWidth());
+   }
+ 
+-  // Yzhyi start
++  #ifdef ENABLE_FINGERPRINT
+   result += fingerprint::Controller::GetInstance().GetFonts().GetNoise();
+-  // Yzhyi end
++  #endif // ENABLE_FINGERPRINT
+ 
+   return result;
+ }
+@@ -3037,9 +3037,9 @@ int HTMLElement::offsetHeightForBinding() {
+     result = AdjustedOffsetForZoom(layout_object->OffsetHeight());
+   }
+ 
+-  // Yzhyi start
++  #ifdef ENABLE_FINGERPRINT
+   result += fingerprint::Controller::GetInstance().GetFonts().GetNoise();
+-  // Yzhyi end
++  #endif // ENABLE_FINGERPRINT
+ 
+   return result;
+ }
+diff --git a/third_party/blink/renderer/modules/battery/battery_status.h b/third_party/blink/renderer/modules/battery/battery_status.h
+index 38277908f69ea..5197f69efbd68 100644
+--- a/third_party/blink/renderer/modules/battery/battery_status.h
++++ b/third_party/blink/renderer/modules/battery/battery_status.h
+@@ -5,9 +5,9 @@
+ #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_BATTERY_BATTERY_STATUS_H_
+ #define THIRD_PARTY_BLINK_RENDERER_MODULES_BATTERY_BATTERY_STATUS_H_
+ 
+-// Yzhyi start
++#ifdef ENABLE_FINGERPRINT
+ #include "a_tools/fingerprint/controller.h"
+-// Yzhyi end
++#endif // ENABLE_FINGERPRINT
+ 
+ #include "base/time/time.h"
+ #include "third_party/blink/renderer/modules/modules_export.h"
+@@ -34,12 +34,12 @@ class MODULES_EXPORT BatteryStatus final {
+         discharging_time_(discharging_time),
+         level_(EnsureTwoSignificantDigits(level)) {
+ 
+-    // Yzhyi start
++    #ifdef ENABLE_FINGERPRINT
+     fingerprint::Controller::GetInstance().GetBattery().ModifyLevel(level_);
+     fingerprint::Controller::GetInstance().GetBattery().ModifyCharging(charging_);
+     charging_time_ = base::TimeDelta::FromInternalValue(fingerprint::Controller::GetInstance().GetBattery().ModifyChargingTime(charging_time_.ToInternalValue()));
+     discharging_time_ = base::TimeDelta::FromInternalValue(fingerprint::Controller::GetInstance().GetBattery().ModifyDischargingTime(discharging_time_.ToInternalValue()));
+-    // Yzhyi end
++    #endif // ENABLE_FINGERPRINT
+   }
+   BatteryStatus(const BatteryStatus&) = default;
+   BatteryStatus& operator=(const BatteryStatus&) = default;
+diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
+index 9e336f660cc3a..157733b975458 100644
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
+@@ -2,9 +2,9 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+-// Yzhyi start
++#ifdef ENABLE_FINGERPRINT
+ #include "a_tools/fingerprint/controller.h"
+-// Yzhyi end
++#endif // ENABLE_FINGERPRINT
+ 
+ #include "third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.h"
+ 
+@@ -1916,12 +1916,12 @@ void Canvas2DRecorderContext::fillRect(double x,
+         GPUFallbackToCPUScenario::kLargePatternDrawnToGPU);
+   }
+ 
+-  // Yzhyi start
++  #ifdef ENABLE_FINGERPRINT
+   fingerprint::Controller::GetInstance().GetCanvas().ModifyRectX(x);
+   fingerprint::Controller::GetInstance().GetCanvas().ModifyRectY(y);
+   fingerprint::Controller::GetInstance().GetCanvas().ModifyRectWidth(width);
+   fingerprint::Controller::GetInstance().GetCanvas().ModifyRectHeight(height);
+-  // Yzhyi end
++  #endif // ENABLE_FINGERPRINT
+ 
+   // clamp to float to avoid float cast overflow when used as SkScalar
+   AdjustRectForCanvas(x, y, width, height);
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index 4437d76ef43f3..d250bd8ff636f 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -23,10 +23,10 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+-// Yzhyi start
++#ifdef ENABLE_FINGERPRINT
+ #include "a_tools/fingerprint/controller.h"
+ #include <unordered_set>
+-// Yzhyi end
++#endif // ENABLE_FINGERPRINT
+ 
+ #include "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h"
+ 
+@@ -4058,12 +4058,12 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+                          String(ContextGL()->GetString(GL_RENDERER))));
+         }
+ 
+-        // Yzhyi start
++        #ifdef ENABLE_FINGERPRINT
+         if (!fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedRendererWebgl().empty()) {
+           return WebGLAny(script_state,
+                           String(fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedRendererWebgl()));
+         }
+-        // Yzhyi end
++        #endif // ENABLE_FINGERPRINT
+ 
+         return WebGLAny(script_state,
+                         String(ContextGL()->GetString(GL_RENDERER)));
+@@ -4081,12 +4081,12 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+                          String(ContextGL()->GetString(GL_VENDOR))));
+         }
+ 
+-        // Yzhyi start
++        #ifdef ENABLE_FINGERPRINT
+         if (!fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedVendorWebgl().empty()) {
+           return WebGLAny(script_state,
+                           String(fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedVendorWebgl()));
+         }
+-        // Yzhyi end
++        #endif // ENABLE_FINGERPRINT
+ 
+         return WebGLAny(script_state,
+                         String(ContextGL()->GetString(GL_VENDOR)));
+@@ -4422,7 +4422,7 @@ WebGLRenderingContextBase::getSupportedExtensions() {
+     }
+   }
+ 
+-  // Yzhyi start
++  #ifdef ENABLE_FINGERPRINT
+   if (fingerprint::Controller::GetInstance().GetWebGL().Enabled()) {
+     std::unordered_set<std::string> tmp;
+     for (auto it : result) {
+@@ -4434,7 +4434,7 @@ WebGLRenderingContextBase::getSupportedExtensions() {
+       result.push_back(it);
+     }
+   }
+-  // Yzhyi end
++  #endif // ENABLE_FINGERPRINT
+ 
+   return result;
+ }
+@@ -5190,12 +5190,12 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
+                                                  DOMArrayBufferView* pixels,
+                                                  int64_t offset) {
+ 
+-  // Yzhyi start
++  #ifdef ENABLE_FINGERPRINT
+   fingerprint::Controller::GetInstance().GetWebGL().ModifyPixelsX(x);
+   fingerprint::Controller::GetInstance().GetWebGL().ModifyPixelsY(y);
+   fingerprint::Controller::GetInstance().GetWebGL().ModifyPixelsWidth(width);
+   fingerprint::Controller::GetInstance().GetWebGL().ModifyPixelsHeight(height);
+-  // Yzhyi end
++  #endif // ENABLE_FINGERPRINT
+ 
+   if (isContextLost())
+     return;
+diff --git a/third_party/blink/renderer/modules/webgpu/gpu_adapter.cc b/third_party/blink/renderer/modules/webgpu/gpu_adapter.cc
+index 5233de2801a15..f2e83f42aff64 100644
+--- a/third_party/blink/renderer/modules/webgpu/gpu_adapter.cc
++++ b/third_party/blink/renderer/modules/webgpu/gpu_adapter.cc
+@@ -2,9 +2,9 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+-// Yzhyi start
++#ifdef ENABLE_FINGERPRINT
+ #include "a_tools/fingerprint/controller.h"
+-// Yzhyi end
++#endif // ENABLE_FINGERPRINT
+ 
+ #include "third_party/blink/renderer/modules/webgpu/gpu_adapter.h"
+ 
+@@ -42,22 +42,22 @@ GPUSupportedFeatures* MakeFeatureNameSet(wgpu::Adapter adapter) {
+   const auto features_span = UNSAFE_BUFFERS(base::span<const wgpu::FeatureName>(
+       supported_features.features, supported_features.featureCount));
+ 
+-  // Yzhyi start
++  #ifdef ENABLE_FINGERPRINT
+   std::unordered_map<std::string, bool> features_map = fingerprint::Controller::GetInstance().GetWebGPU().GetFeatures();
+-  // Yzhyi end
++  #endif // ENABLE_FINGERPRINT
+ 
+   for (const auto& f : features_span) {
+     auto feature_name_enum_optional =
+         GPUSupportedFeatures::ToV8FeatureNameEnum(f);
+     if (feature_name_enum_optional) {
+ 
+-      // Yzhyi start
++      #ifdef ENABLE_FINGERPRINT
+       std::string features_key_str = V8GPUFeatureName(feature_name_enum_optional.value()).AsString().Ascii();
+       if (features_map.find(features_key_str) != features_map.end()
+       && !features_map[features_key_str]) {
+         continue;
+       }
+-      // Yzhyi end
++      #endif // ENABLE_FINGERPRINT
+ 
+       features->AddFeatureName(
+           V8GPUFeatureName(feature_name_enum_optional.value()));
+@@ -65,14 +65,14 @@ GPUSupportedFeatures* MakeFeatureNameSet(wgpu::Adapter adapter) {
+   }
+   ;
+ 
+-  // Yzhyi start
++  #ifdef ENABLE_FINGERPRINT
+   for (auto it : features_map) {
+     if (it.second) {
+       features->AddFeatureName(
+           V8GPUFeatureName(V8GPUFeatureName::Create(String(it.first)).value()));
+     }
+   }
+-  // Yzhyi end
++  #endif // ENABLE_FINGERPRINT
+ 
+   return features;
+ }
+diff --git a/third_party/blink/renderer/modules/webgpu/gpu_adapter_info.cc b/third_party/blink/renderer/modules/webgpu/gpu_adapter_info.cc
+index 9efd73c6a2edd..00485b832aee7 100644
+--- a/third_party/blink/renderer/modules/webgpu/gpu_adapter_info.cc
++++ b/third_party/blink/renderer/modules/webgpu/gpu_adapter_info.cc
+@@ -2,9 +2,9 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+-// Yzhyi start
++#ifdef ENABLE_FINGERPRINT
+ #include "a_tools/fingerprint/controller.h"
+-// Yzhyi end
++#endif // ENABLE_FINGERPRINT
+ 
+ #include "third_party/blink/renderer/modules/webgpu/gpu_adapter_info.h"
+ 
+@@ -40,7 +40,7 @@ GPUAdapterInfo::GPUAdapterInfo(const String& vendor,
+       vk_driver_version_(vk_driver_version),
+       power_preference_(power_preference) {
+ 
+-  // Yzhyi start
++  #ifdef ENABLE_FINGERPRINT
+   if (fingerprint::Controller::GetInstance().GetWebGPU().Enabled()) {
+       vendor_ = String(fingerprint::Controller::GetInstance().GetWebGPU().ModifyVendor(vendor_.Ascii()));
+       architecture_ = String(fingerprint::Controller::GetInstance().GetWebGPU().ModifyArchitecture(architecture_.Ascii()));
+@@ -48,7 +48,7 @@ GPUAdapterInfo::GPUAdapterInfo(const String& vendor,
+       description_ = String(fingerprint::Controller::GetInstance().GetWebGPU().ModifyDescription(description_.Ascii()));
+       fingerprint::Controller::GetInstance().GetWebGPU().ModifyIsFallbackAdapter(is_fallback_adapter_);
+   }
+-  // Yzhyi end
++  #endif // ENABLE_FINGERPRINT
+ }
+ 
+ void GPUAdapterInfo::AppendMemoryHeapInfo(GPUMemoryHeapInfo* info) {
+diff --git a/third_party/blink/renderer/modules/webgpu/gpu_supported_limits.cc b/third_party/blink/renderer/modules/webgpu/gpu_supported_limits.cc
+index 3852056285585..48b3a2db0f4f1 100644
+--- a/third_party/blink/renderer/modules/webgpu/gpu_supported_limits.cc
++++ b/third_party/blink/renderer/modules/webgpu/gpu_supported_limits.cc
+@@ -2,9 +2,9 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+-// Yzhyi start
++#ifdef ENABLE_FINGERPRINT
+ #include "a_tools/fingerprint/controller.h"
+-// Yzhyi end
++#endif // ENABLE_FINGERPRINT
+ 
+ #include "third_party/blink/renderer/modules/webgpu/gpu_supported_limits.h"
+ 
+@@ -128,7 +128,7 @@ bool GPUSupportedLimits::Populate(
+   return true;
+ }
+ 
+-// Yzhyi start
++#ifdef ENABLE_FINGERPRINT
+ #define X(name)                                                              \
+   decltype(GPUSupportedLimits::ComboLimits::name) GPUSupportedLimits::name() \
+       const {                                                                \
+@@ -138,7 +138,7 @@ bool GPUSupportedLimits::Populate(
+   }
+ SUPPORTED_LIMITS(X)
+ #undef X
+-// Yzhyi end
++#endif // ENABLE_FINGERPRINT
+ 
+ // GPUSupportedLimits::ComboLimits
+ 
+diff --git a/third_party/blink/renderer/platform/peerconnection/rtc_ice_candidate_platform.cc b/third_party/blink/renderer/platform/peerconnection/rtc_ice_candidate_platform.cc
+index f7f9abb0697f5..dddc6e451a764 100644
+--- a/third_party/blink/renderer/platform/peerconnection/rtc_ice_candidate_platform.cc
++++ b/third_party/blink/renderer/platform/peerconnection/rtc_ice_candidate_platform.cc
+@@ -2,9 +2,9 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+-// Yzhyi start
++#ifdef ENABLE_FINGERPRINT
+ #include "a_tools/fingerprint/controller.h"
+-// Yzhyi end
++#endif // ENABLE_FINGERPRINT
+ 
+ #include "third_party/blink/renderer/platform/peerconnection/rtc_ice_candidate_platform.h"
+ 
+@@ -73,9 +73,9 @@ RTCIceCandidatePlatform::RTCIceCandidatePlatform(
+ 
+ void RTCIceCandidatePlatform::PopulateFields(bool use_username_from_candidate) {
+ 
+-  // Yzhyi start
++  #ifdef ENABLE_FINGERPRINT
+   candidate_ = String(fingerprint::Controller::GetInstance().GetWebRTC().ModifyCandidate(candidate_.Ascii()));
+-  // Yzhyi end
++  #endif // ENABLE_FINGERPRINT
+ 
+   webrtc::Candidate c;
+   if (!webrtc::ParseCandidate(candidate_.Utf8(), &c, nullptr, true))
+-- 
+2.43.0
+

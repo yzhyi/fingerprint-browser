@@ -1,0 +1,442 @@
+From 80ba815c88efd304b4605fe9db0f1fef2df97712 Mon Sep 17 00:00:00 2001
+From: yuzhengyi02 <yuzhengyi02@meituan.com>
+Date: Thu, 18 Sep 2025 12:59:39 +0800
+Subject: [PATCH 22/68] modify webgl
+
+---
+ a_tools/BUILD.gn                              |   2 +
+ a_tools/fingerprint/controller.cc             |  51 +--------
+ a_tools/fingerprint/controller.h              |  59 +---------
+ a_tools/fingerprint/fonts/fonts.h             |   1 -
+ a_tools/fingerprint/webgl/webgl.cc            | 103 ++++++++++++++++++
+ a_tools/fingerprint/webgl/webgl.h             |  45 ++++++++
+ config.json                                   |   2 +-
+ .../core/html/canvas/html_canvas_element.cc   |   2 +-
+ .../webgl/webgl_rendering_context_base.cc     |  18 +--
+ 9 files changed, 167 insertions(+), 116 deletions(-)
+ create mode 100644 a_tools/fingerprint/webgl/webgl.cc
+ create mode 100644 a_tools/fingerprint/webgl/webgl.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index 9746155ae3957..31fd40504ea65 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -12,6 +12,8 @@ static_library("a_tools") {
+     "fingerprint/controller.cc",
+     "fingerprint/utils/random.h",
+     "fingerprint/utils/random.cc",
++    "fingerprint/webgl/webgl.h",
++    "fingerprint/webgl/webgl.cc",
+     "fingerprint/fonts/fonts.h",
+     "fingerprint/fonts/fonts.cc",
+     "fingerprint/webgpu/webgpu.h",
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index f15f9d6595183..49b45290c1f06 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -15,12 +15,12 @@ Controller::Controller()
+     m_enabled(m_command_line->HasSwitch(kFingerprint)),
+     m_json_str(m_enabled ? m_command_line->GetSwitchValueASCII(kFingerprint) : std::string{}),
+     m_json_value(m_enabled ? base::JSONReader::Read(m_json_str) : absl::nullopt),
++    m_webgl(m_json_value),
+     m_fonts(m_json_value),
+     m_webgpu(m_json_value)
+ {
+   if (m_enabled) {
+     ParseJson();
+-    ParseWebGL();
+   }
+ }
+ 
+@@ -81,53 +81,4 @@ bool Controller::ParseCanvas() {
+   return false;
+ }
+ 
+-bool Controller::ParseWebGL() {
+-  base::DictValue* webgl_dict = m_json_value->GetDict().FindDict("webgl");
+-  if (webgl_dict) {
+-    std::optional<bool> webgl_enable = webgl_dict->FindBool("enable");
+-    if (webgl_enable.has_value() && webgl_enable.value()) {
+-      m_webgl_enable = webgl_enable.value();
+-      base::DictValue* webgl_params_dict = webgl_dict->FindDict("params");
+-      if (webgl_params_dict) {
+-        std::string* webgl_unmasked_vendor_webgl = webgl_params_dict->FindString("unmasked_vendor_webgl");
+-        if (webgl_unmasked_vendor_webgl) {
+-          m_webgl_unmasked_vendor_webgl = *webgl_unmasked_vendor_webgl;
+-        }
+-        std::string* webgl_unmasked_renderer_webgl = webgl_params_dict->FindString("unmasked_renderer_webgl");
+-        if (webgl_unmasked_renderer_webgl) {
+-          m_webgl_unmasked_renderer_webgl = *webgl_unmasked_renderer_webgl;
+-        }
+-      }
+-      base::DictValue* webgl_extensions_dict = webgl_dict->FindDict("extensions");
+-      if (webgl_extensions_dict) {
+-        std::optional<bool> webgl_extensions_random_shuffle = webgl_extensions_dict->FindBool("random_shuffle");
+-        if (webgl_extensions_random_shuffle.has_value()) {
+-          m_webgl_extensions_random_shuffle_enable = webgl_extensions_random_shuffle.value();
+-        }
+-      }
+-      base::DictValue* webgl_pixels_dict = webgl_dict->FindDict("pixels");
+-      if (webgl_pixels_dict) {
+-        std::optional<double> webgl_pixels_x = webgl_pixels_dict->FindDouble("x");
+-        if (webgl_pixels_x.has_value()) {
+-          m_webgl_pixels_x = webgl_pixels_x.value();
+-        }
+-        std::optional<double> webgl_pixels_y = webgl_pixels_dict->FindDouble("y");
+-        if (webgl_pixels_y.has_value()) {
+-          m_webgl_pixels_y = webgl_pixels_y.value();
+-        }
+-        std::optional<double> webgl_pixels_width = webgl_pixels_dict->FindDouble("width");
+-        if (webgl_pixels_width.has_value()) {
+-          m_webgl_pixels_width = webgl_pixels_width.value();
+-        }
+-        std::optional<double> webgl_pixels_height = webgl_pixels_dict->FindDouble("height");
+-        if (webgl_pixels_height.has_value()) {
+-          m_webgl_pixels_height = webgl_pixels_height.value();
+-        }
+-      }
+-    }
+-    return true;
+-  }
+-  return false;
+-}
+-
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index 2d68cbe8bf4db..0b8c20624d94e 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -13,9 +13,10 @@
+ #include "content/common/content_export.h"
+ #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+ 
+-#include "a_tools/fingerprint/webgpu/webgpu.h"
+-#include "a_tools/fingerprint/fonts/fonts.h"
+ #include "a_tools/fingerprint/utils/random.h"
++#include "a_tools/fingerprint/webgl/webgl.h"
++#include "a_tools/fingerprint/fonts/fonts.h"
++#include "a_tools/fingerprint/webgpu/webgpu.h"
+ 
+ namespace fingerprint {
+ 
+@@ -73,47 +74,7 @@ public:
+     }
+   }
+ 
+-  // webgl
+-  bool ParseWebGL();
+-  bool WebGLEnable() {
+-    return m_webgl_enable;
+-  }
+-  std::string GetWebGLUnmaskedVendorWebgl() {
+-    if (m_webgl_enable) {
+-      return m_webgl_unmasked_vendor_webgl;
+-    }
+-    return "";
+-  }
+-  std::string GetWebGLUnmaskedRendererWebgl() {
+-    if (m_webgl_enable) {
+-      return m_webgl_unmasked_renderer_webgl;
+-    }
+-    return "";
+-  }
+-  bool WebGLExtensionsRandomShuffleEnable() {
+-    return m_webgl_extensions_random_shuffle_enable;
+-  }
+-  void ModifyWebGLPixelsX(int &value) {
+-    if (m_webgl_enable) {
+-      value += static_cast<int>(m_webgl_pixels_x);
+-    }
+-  }
+-  void ModifyWebGLPixelsY(int &value) {
+-    if (m_webgl_enable) {
+-      value += static_cast<int>(m_webgl_pixels_y);
+-    }
+-  }
+-  void ModifyWebGLPixelsWidth(int &value) {
+-    if (m_webgl_enable) {
+-      value += static_cast<int>(m_webgl_pixels_width);
+-    }
+-  }
+-  void ModifyWebGLPixelsHeight(int &value) {
+-    if (m_webgl_enable) {
+-      value += static_cast<int>(m_webgl_pixels_height);
+-    }
+-  }
+-
++  WebGL& GetWebGL() { return m_webgl; }
+   Fonts& GetFonts() { return m_fonts; }
+   WebGPU& GetWebGPU() { return m_webgpu; }
+ 
+@@ -137,17 +98,7 @@ private:
+   double m_canvas_rect_width{0};
+   double m_canvas_rect_height{0};
+ 
+-  // webgl
+-  bool m_webgl_enable{false};
+-  std::string m_webgl_unmasked_vendor_webgl;
+-  std::string m_webgl_unmasked_renderer_webgl;
+-  bool m_webgl_extensions_random_shuffle_enable{false};
+-  double m_webgl_pixels_x{0};
+-  double m_webgl_pixels_y{0};
+-  double m_webgl_pixels_width{0};
+-  double m_webgl_pixels_height{0};
+-  
+-
++  WebGL m_webgl;
+   Fonts m_fonts;
+   WebGPU m_webgpu;
+ };
+diff --git a/a_tools/fingerprint/fonts/fonts.h b/a_tools/fingerprint/fonts/fonts.h
+index b7bc5f45fdf9b..f87b77b8f4da8 100644
+--- a/a_tools/fingerprint/fonts/fonts.h
++++ b/a_tools/fingerprint/fonts/fonts.h
+@@ -27,7 +27,6 @@ public:
+ 
+ private:
+   bool m_enabled{false};
+-
+   double m_noise_min{0};
+   double m_noise_max{0};
+ };
+diff --git a/a_tools/fingerprint/webgl/webgl.cc b/a_tools/fingerprint/webgl/webgl.cc
+new file mode 100644
+index 0000000000000..cbd75e95f0175
+--- /dev/null
++++ b/a_tools/fingerprint/webgl/webgl.cc
+@@ -0,0 +1,103 @@
++#include "webgl.h"
++
++namespace fingerprint {
++
++WebGL::WebGL(absl::optional<base::Value> &json_value) {
++  ParseJson(json_value);
++}
++
++WebGL::~WebGL() = default;
++
++bool WebGL::ParseJson(absl::optional<base::Value> &json_value) {
++  if (!json_value) return false;
++  base::DictValue* dict = json_value->GetDict().FindDict("webgl");
++  if (dict) {
++    std::optional<bool> enabled = dict->FindBool("enabled");
++    if (enabled.has_value() && enabled.value()) {
++      m_enabled = enabled.value();
++      base::DictValue* params_dict = dict->FindDict("params");
++      if (params_dict) {
++        std::string* unmasked_vendor_webgl = params_dict->FindString("unmasked_vendor_webgl");
++        if (unmasked_vendor_webgl) {
++          m_unmasked_vendor_webgl = *unmasked_vendor_webgl;
++        }
++        std::string* unmasked_renderer_webgl = params_dict->FindString("unmasked_renderer_webgl");
++        if (unmasked_renderer_webgl) {
++          m_unmasked_renderer_webgl = *unmasked_renderer_webgl;
++        }
++      }
++      base::DictValue* extensions_dict = dict->FindDict("extensions");
++      if (extensions_dict) {
++        std::optional<bool> extensions_random_shuffle = extensions_dict->FindBool("random_shuffle");
++        if (extensions_random_shuffle.has_value()) {
++          m_extensions_random_shuffle_enable = extensions_random_shuffle.value();
++        }
++      }
++      base::DictValue* pixels_dict = dict->FindDict("pixels");
++      if (pixels_dict) {
++        std::optional<double> pixels_x = pixels_dict->FindDouble("x");
++        if (pixels_x.has_value()) {
++          m_pixels_x = pixels_x.value();
++        }
++        std::optional<double> pixels_y = pixels_dict->FindDouble("y");
++        if (pixels_y.has_value()) {
++          m_pixels_y = pixels_y.value();
++        }
++        std::optional<double> pixels_width = pixels_dict->FindDouble("width");
++        if (pixels_width.has_value()) {
++          m_pixels_width = pixels_width.value();
++        }
++        std::optional<double> pixels_height = pixels_dict->FindDouble("height");
++        if (pixels_height.has_value()) {
++          m_pixels_height = pixels_height.value();
++        }
++      }
++    }
++    return true;
++  }
++  return false;
++}
++
++std::string WebGL::GetUnmaskedVendorWebgl() {
++  if (m_enabled) {
++    return m_unmasked_vendor_webgl;
++  }
++  return "";
++}
++
++std::string WebGL::GetUnmaskedRendererWebgl() {
++  if (m_enabled) {
++    return m_unmasked_renderer_webgl;
++  }
++  return "";
++}
++
++bool WebGL::ExtensionsRandomShuffleEnable() {
++  return m_extensions_random_shuffle_enable;
++}
++
++void WebGL::ModifyPixelsX(int &value) {
++  if (m_enabled) {
++    value += static_cast<int>(m_pixels_x);
++  }
++}
++
++void WebGL::ModifyPixelsY(int &value) {
++  if (m_enabled) {
++    value += static_cast<int>(m_pixels_y);
++  }
++}
++
++void WebGL::ModifyPixelsWidth(int &value) {
++  if (m_enabled) {
++    value += static_cast<int>(m_pixels_width);
++  }
++}
++
++void WebGL::ModifyPixelsHeight(int &value) {
++  if (m_enabled) {
++    value += static_cast<int>(m_pixels_height);
++  }
++}
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/webgl/webgl.h b/a_tools/fingerprint/webgl/webgl.h
+new file mode 100644
+index 0000000000000..7034befdeb97b
+--- /dev/null
++++ b/a_tools/fingerprint/webgl/webgl.h
+@@ -0,0 +1,45 @@
++# pragma once
++
++#include <string>
++#include <unordered_map>
++#include "base/values.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++
++namespace fingerprint {
++
++class Controller;
++
++class WebGL {
++public:
++  friend Controller;
++  WebGL(const WebGL&) = delete;
++  WebGL& operator=(const WebGL&) = delete;
++
++private:
++  explicit WebGL(absl::optional<base::Value> &json_value);
++  ~WebGL();
++  
++public:
++  bool ParseJson(absl::optional<base::Value> &json_value);
++  bool Enabled() { return m_enabled; }
++
++  std::string GetUnmaskedVendorWebgl();
++  std::string GetUnmaskedRendererWebgl();
++  bool ExtensionsRandomShuffleEnable();
++  void ModifyPixelsX(int &value);
++  void ModifyPixelsY(int &value);
++  void ModifyPixelsWidth(int &value);
++  void ModifyPixelsHeight(int &value);
++
++private:
++  bool m_enabled{false};
++  std::string m_unmasked_vendor_webgl;
++  std::string m_unmasked_renderer_webgl;
++  bool m_extensions_random_shuffle_enable{false};
++  double m_pixels_x{0};
++  double m_pixels_y{0};
++  double m_pixels_width{0};
++  double m_pixels_height{0};
++};
++
++} // namespace fingerprint
+diff --git a/config.json b/config.json
+index eff5a00bee880..7d2f0da556ca7 100644
+--- a/config.json
++++ b/config.json
+@@ -11,7 +11,7 @@
+     }
+   },
+   "webgl": {
+-    "enable": true,
++    "enabled": true,
+     "params": {
+       "#unmasked_vendor_webgl": "Google Inc. (Apple)",
+       "#unmasked_renderer_webgl": "ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Pro, Unspecified Version)",
+diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+index 7ada12d5c5572..43c8e0a37fff1 100644
+--- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
++++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+@@ -1437,7 +1437,7 @@ String HTMLCanvasElement::ToDataURLInternal(const String& mime_type,
+           "CanvasReadback", "data_url", data_url.Utf8(), "noised", noised);
+     }
+     // Yzhyi start
+-    if (fingerprint::Controller::GetInstance().WebGLEnable()) {
++    if (fingerprint::Controller::GetInstance().GetWebGL().Enabled()) {
+       return data_url + String(" ");
+     }
+     // Yzhyi end
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index b7cf6cc1c1fac..934d4140097e2 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -4057,9 +4057,9 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+                          String(ContextGL()->GetString(GL_RENDERER))));
+         }
+         // Yzhyi start
+-        if (!fingerprint::Controller::GetInstance().GetWebGLUnmaskedRendererWebgl().empty()) {
++        if (!fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedRendererWebgl().empty()) {
+           return WebGLAny(script_state,
+-                          String(fingerprint::Controller::GetInstance().GetWebGLUnmaskedRendererWebgl()));
++                          String(fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedRendererWebgl()));
+         }
+         // Yzhyi end
+         return WebGLAny(script_state,
+@@ -4078,9 +4078,9 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+                          String(ContextGL()->GetString(GL_VENDOR))));
+         }
+         // Yzhyi start
+-        if (!fingerprint::Controller::GetInstance().GetWebGLUnmaskedVendorWebgl().empty()) {
++        if (!fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedVendorWebgl().empty()) {
+           return WebGLAny(script_state,
+-                          String(fingerprint::Controller::GetInstance().GetWebGLUnmaskedVendorWebgl()));
++                          String(fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedVendorWebgl()));
+         }
+         // Yzhyi end
+         return WebGLAny(script_state,
+@@ -4418,7 +4418,7 @@ WebGLRenderingContextBase::getSupportedExtensions() {
+   }
+ 
+   // Yzhyi start
+-  if (fingerprint::Controller::GetInstance().WebGLExtensionsRandomShuffleEnable()) {
++  if (fingerprint::Controller::GetInstance().GetWebGL().ExtensionsRandomShuffleEnable()) {
+     // 使用当前时间作为随机数生成的种子
+     unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+     std::default_random_engine engine(seed);
+@@ -5183,10 +5183,10 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
+                                                  int64_t offset) {
+ 
+   // Yzhyi start
+-  fingerprint::Controller::GetInstance().ModifyWebGLPixelsX(x);
+-  fingerprint::Controller::GetInstance().ModifyWebGLPixelsY(y);
+-  fingerprint::Controller::GetInstance().ModifyWebGLPixelsWidth(width);
+-  fingerprint::Controller::GetInstance().ModifyWebGLPixelsHeight(height);
++  fingerprint::Controller::GetInstance().GetWebGL().ModifyPixelsX(x);
++  fingerprint::Controller::GetInstance().GetWebGL().ModifyPixelsY(y);
++  fingerprint::Controller::GetInstance().GetWebGL().ModifyPixelsWidth(width);
++  fingerprint::Controller::GetInstance().GetWebGL().ModifyPixelsHeight(height);
+   // Yzhyi end
+ 
+   if (isContextLost())
+-- 
+2.43.0
+

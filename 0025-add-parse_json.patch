@@ -1,0 +1,388 @@
+From dff5c80f870630808f0d581f3960fc67ad92f7c5 Mon Sep 17 00:00:00 2001
+From: yuzhengyi02 <yuzhengyi02@meituan.com>
+Date: Fri, 19 Sep 2025 10:59:23 +0800
+Subject: [PATCH 25/68] add parse_json
+
+---
+ a_tools/BUILD.gn                        |  2 +
+ a_tools/fingerprint/canvas/canvas.cc    | 47 ++++++----------------
+ a_tools/fingerprint/fonts/fonts.cc      | 21 +++-------
+ a_tools/fingerprint/utils/parse_json.cc | 40 +++++++++++++++++++
+ a_tools/fingerprint/utils/parse_json.h  | 14 +++++++
+ a_tools/fingerprint/webgl/webgl.cc      | 52 +++++++------------------
+ a_tools/fingerprint/webgpu/webgpu.cc    | 46 ++++++----------------
+ config.json                             | 24 ++++++------
+ 8 files changed, 111 insertions(+), 135 deletions(-)
+ create mode 100644 a_tools/fingerprint/utils/parse_json.cc
+ create mode 100644 a_tools/fingerprint/utils/parse_json.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index 233cdfc451c41..230ce7695a10d 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -12,6 +12,8 @@ static_library("a_tools") {
+     "fingerprint/controller.cc",
+     "fingerprint/base_fingerprint.h",
+     "fingerprint/base_fingerprint.cc",
++    "fingerprint/utils/parse_json.h",
++    "fingerprint/utils/parse_json.cc",
+     "fingerprint/utils/random.h",
+     "fingerprint/utils/random.cc",
+     "fingerprint/canvas/canvas.h",
+diff --git a/a_tools/fingerprint/canvas/canvas.cc b/a_tools/fingerprint/canvas/canvas.cc
+index 34bde8360cefb..b1b471777103e 100644
+--- a/a_tools/fingerprint/canvas/canvas.cc
++++ b/a_tools/fingerprint/canvas/canvas.cc
+@@ -1,5 +1,7 @@
+ #include <iostream>
++
+ #include "canvas.h"
++#include "a_tools/fingerprint/utils/parse_json.h"
+ 
+ namespace fingerprint {
+ 
+@@ -11,41 +13,16 @@ Canvas::~Canvas() = default;
+ 
+ bool Canvas::ParseJson(const absl::optional<base::Value> &json_value) {
+   if (!json_value) return false;
+-  const base::DictValue* dict = json_value->GetDict().FindDict("canvas");
+-  if (dict) {
+-    std::optional<bool> enabled = dict->FindBool("enabled");
+-    if (enabled.has_value() && enabled.value()) {
+-      m_enabled = enabled.value();
+-      const base::DictValue* params_dict = dict->FindDict("params");
+-      if (params_dict) {
+-        std::optional<double> width = params_dict->FindDouble("width");
+-        if (width.has_value()) {
+-          m_width = width.value();
+-        }
+-        std::optional<double> height = params_dict->FindDouble("height");
+-        if (height.has_value()) {
+-          m_height = height.value();
+-        }
+-        std::optional<double> rect_x = params_dict->FindDouble("rect_x");
+-        if (rect_x.has_value()) {
+-          m_rect_x = rect_x.value();
+-        }
+-        std::optional<double> rect_y = params_dict->FindDouble("rect_y");
+-        if (rect_y.has_value()) {
+-          m_rect_y = rect_y.value();
+-        }
+-        std::optional<double> rect_width = params_dict->FindDouble("rect_width");
+-        if (rect_width.has_value()) {
+-          m_rect_width = rect_width.value();
+-        }
+-        std::optional<double> rect_height = params_dict->FindDouble("rect_height");
+-        if (rect_height.has_value()) {
+-          m_rect_height = rect_height.value();
+-        }
+-        std::optional<bool> modify_data_url_enable = params_dict->FindBool("modify_data_url");
+-        if (modify_data_url_enable.has_value() && modify_data_url_enable.value()) {
+-          m_modify_data_url_enable = modify_data_url_enable.value();
+-        }
++  if (const base::DictValue* dict = FindDict(json_value.value(), "canvas"); dict) {
++    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
++      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        FindDouble(params_dict, "width", m_width);
++        FindDouble(params_dict, "height", m_height);
++        FindDouble(params_dict, "rect_x", m_rect_x);
++        FindDouble(params_dict, "rect_y", m_rect_y);
++        FindDouble(params_dict, "rect_width", m_rect_width);
++        FindDouble(params_dict, "rect_height", m_rect_height);
++        FindBool(params_dict, "modify_data_url", m_modify_data_url_enable);
+       }
+     }
+     return true;
+diff --git a/a_tools/fingerprint/fonts/fonts.cc b/a_tools/fingerprint/fonts/fonts.cc
+index 6320545bbde74..7413ecb1d584a 100644
+--- a/a_tools/fingerprint/fonts/fonts.cc
++++ b/a_tools/fingerprint/fonts/fonts.cc
+@@ -1,5 +1,6 @@
+ #include "fonts.h"
+ #include "a_tools/fingerprint/utils/random.h"
++#include "a_tools/fingerprint/utils/parse_json.h"
+ 
+ namespace fingerprint {
+ 
+@@ -11,21 +12,11 @@ Fonts::~Fonts() = default;
+ 
+ bool Fonts::ParseJson(const absl::optional<base::Value> &json_value) {
+   if (!json_value) return false;
+-  const base::DictValue* dict = json_value->GetDict().FindDict("fonts");
+-  if (dict) {
+-    std::optional<bool> enabled = dict->FindBool("enabled");
+-    if (enabled.has_value() && enabled.value()) {
+-      m_enabled = enabled.value();
+-      const base::DictValue* params_dict = dict->FindDict("params");
+-      if (params_dict) {
+-        std::optional<double> noise_min = params_dict->FindDouble("noise_min");
+-        if (noise_min.has_value()) {
+-          m_noise_min = noise_min.value();
+-        }
+-        std::optional<double> noise_max = params_dict->FindDouble("noise_max");
+-        if (noise_max.has_value()) {
+-          m_noise_max = noise_max.value();
+-        }
++  if (const base::DictValue* dict = FindDict(json_value.value(), "fonts"); dict) {
++    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
++      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        FindDouble(params_dict, "noise_min", m_noise_min);
++        FindDouble(params_dict, "noise_max", m_noise_max);
+       }
+     }
+     return true;
+diff --git a/a_tools/fingerprint/utils/parse_json.cc b/a_tools/fingerprint/utils/parse_json.cc
+new file mode 100644
+index 0000000000000..f9be158e2397b
+--- /dev/null
++++ b/a_tools/fingerprint/utils/parse_json.cc
+@@ -0,0 +1,40 @@
++#include "parse_json.h"
++
++namespace fingerprint {
++
++const base::DictValue* FindDict(const base::Value &json_value, std::string_view key) {
++  return json_value.GetDict().FindDict(key);
++}
++
++const base::DictValue* FindDict(const base::DictValue *json_dict, std::string_view key) {
++  return json_dict->FindDict(key);
++}
++
++bool FindBool(const base::DictValue *json_dict, std::string_view key, bool &value) {
++  std::optional<bool> key_value = json_dict->FindBool(key);
++  if (key_value.has_value()) {
++    value = key_value.value();
++    return true;
++  }
++  return false;
++}
++
++bool FindDouble(const base::DictValue *json_dict, std::string_view key, double &value) {
++  std::optional<double> key_value = json_dict->FindDouble(key);
++  if (key_value.has_value()) {
++    value = key_value.value();
++    return true;
++  }
++  return false;
++}
++
++bool FindString(const base::DictValue *json_dict, std::string_view key, std::string &value) {
++  const std::string* key_value = json_dict->FindString(key);
++  if (key_value) {
++    value = *key_value;
++    return true;
++  }
++  return false;
++}
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/utils/parse_json.h b/a_tools/fingerprint/utils/parse_json.h
+new file mode 100644
+index 0000000000000..3f04005dd409c
+--- /dev/null
++++ b/a_tools/fingerprint/utils/parse_json.h
+@@ -0,0 +1,14 @@
++# pragma once
++
++#include "base/values.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++
++namespace fingerprint {
++
++const base::DictValue* FindDict(const base::Value &json_value, std::string_view key);
++const base::DictValue* FindDict(const base::DictValue *json_dict, std::string_view key);
++bool FindBool(const base::DictValue *json_dict, std::string_view key, bool &value);
++bool FindDouble(const base::DictValue *json_dict, std::string_view key, double &value);
++bool FindString(const base::DictValue *json_dict, std::string_view key, std::string &value);
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/webgl/webgl.cc b/a_tools/fingerprint/webgl/webgl.cc
+index 1bfe69b643ccd..c2133ef0649c3 100644
+--- a/a_tools/fingerprint/webgl/webgl.cc
++++ b/a_tools/fingerprint/webgl/webgl.cc
+@@ -1,6 +1,7 @@
+ #include <random>
+ 
+ #include "webgl.h"
++#include "a_tools/fingerprint/utils/parse_json.h"
+ 
+ namespace fingerprint {
+ 
+@@ -12,46 +13,19 @@ WebGL::~WebGL() = default;
+ 
+ bool WebGL::ParseJson(const absl::optional<base::Value> &json_value) {
+   if (!json_value) return false;
+-  const base::DictValue* dict = json_value->GetDict().FindDict("webgl");
+-  if (dict) {
+-    std::optional<bool> enabled = dict->FindBool("enabled");
+-    if (enabled.has_value() && enabled.value()) {
+-      m_enabled = enabled.value();
+-      const base::DictValue* params_dict = dict->FindDict("params");
+-      if (params_dict) {
+-        const std::string* unmasked_vendor_webgl = params_dict->FindString("unmasked_vendor_webgl");
+-        if (unmasked_vendor_webgl) {
+-          m_unmasked_vendor_webgl = *unmasked_vendor_webgl;
++  if (const base::DictValue* dict = FindDict(json_value.value(), "webgl"); dict) {
++    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
++      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        FindString(params_dict, "unmasked_vendor_webgl", m_unmasked_vendor_webgl);
++        FindString(params_dict, "unmasked_renderer_webgl", m_unmasked_renderer_webgl);
++        if (const base::DictValue* extensions_dict = FindDict(params_dict, "extensions"); extensions_dict) {
++          FindBool(extensions_dict, "random_shuffle", m_extensions_random_shuffle_enable);
+         }
+-        const std::string* unmasked_renderer_webgl = params_dict->FindString("unmasked_renderer_webgl");
+-        if (unmasked_renderer_webgl) {
+-          m_unmasked_renderer_webgl = *unmasked_renderer_webgl;
+-        }
+-      }
+-      const base::DictValue* extensions_dict = dict->FindDict("extensions");
+-      if (extensions_dict) {
+-        std::optional<bool> extensions_random_shuffle = extensions_dict->FindBool("random_shuffle");
+-        if (extensions_random_shuffle.has_value()) {
+-          m_extensions_random_shuffle_enable = extensions_random_shuffle.value();
+-        }
+-      }
+-      const base::DictValue* pixels_dict = dict->FindDict("pixels");
+-      if (pixels_dict) {
+-        std::optional<double> pixels_x = pixels_dict->FindDouble("x");
+-        if (pixels_x.has_value()) {
+-          m_pixels_x = pixels_x.value();
+-        }
+-        std::optional<double> pixels_y = pixels_dict->FindDouble("y");
+-        if (pixels_y.has_value()) {
+-          m_pixels_y = pixels_y.value();
+-        }
+-        std::optional<double> pixels_width = pixels_dict->FindDouble("width");
+-        if (pixels_width.has_value()) {
+-          m_pixels_width = pixels_width.value();
+-        }
+-        std::optional<double> pixels_height = pixels_dict->FindDouble("height");
+-        if (pixels_height.has_value()) {
+-          m_pixels_height = pixels_height.value();
++        if (const base::DictValue* pixels_dict = FindDict(params_dict, "pixels"); pixels_dict) {
++          FindDouble(pixels_dict, "x", m_pixels_x);
++          FindDouble(pixels_dict, "y", m_pixels_y);
++          FindDouble(pixels_dict, "width", m_pixels_width);
++          FindDouble(pixels_dict, "height", m_pixels_height);
+         }
+       }
+     }
+diff --git a/a_tools/fingerprint/webgpu/webgpu.cc b/a_tools/fingerprint/webgpu/webgpu.cc
+index 27d2f00faae69..520240a935f3f 100644
+--- a/a_tools/fingerprint/webgpu/webgpu.cc
++++ b/a_tools/fingerprint/webgpu/webgpu.cc
+@@ -1,4 +1,5 @@
+ #include "webgpu.h"
++#include "a_tools/fingerprint/utils/parse_json.h"
+ 
+ namespace fingerprint {
+ 
+@@ -10,39 +11,17 @@ WebGPU::~WebGPU() = default;
+ 
+ bool WebGPU::ParseJson(const absl::optional<base::Value> &json_value) {
+   if (!json_value) return false;
+-  const base::DictValue* dict = json_value->GetDict().FindDict("webgpu");
+-  if (dict) {
+-    std::optional<bool> enabled = dict->FindBool("enabled");
+-    if (enabled.has_value() && enabled.value()) {
+-      m_enabled = enabled.value();
+-      const base::DictValue* params_dict = dict->FindDict("params");
+-      if (params_dict) {
+-        const base::DictValue* params_info_dict = params_dict->FindDict("info");
+-        if (params_info_dict) {
+-          const std::string* vendor = params_info_dict->FindString("vendor");
+-          if (vendor) {
+-            m_vendor = *vendor;
+-          }
+-          const std::string* architecture = params_info_dict->FindString("architecture");
+-          if (architecture) {
+-            m_architecture = *architecture;
+-          }
+-          const std::string* device = params_info_dict->FindString("device");
+-          if (device) {
+-            m_device = *device;
+-          }
+-          const std::string* description = params_info_dict->FindString("description");
+-          if (description) {
+-            m_description = *description;
+-          }
+-          std::optional<bool> is_fallback_adapter = params_info_dict->FindBool("is_fallback_adapter");
+-          if (is_fallback_adapter.has_value()) {
+-            m_is_fallback_adapter_initialized = true;
+-            m_is_fallback_adapter = is_fallback_adapter.value();
+-          }
++  if (const base::DictValue* dict = FindDict(json_value.value(), "webgpu"); dict) {
++    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
++      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        if (const base::DictValue* params_info_dict = FindDict(params_dict, "info"); params_info_dict) {
++          FindString(params_info_dict, "vendor", m_vendor);
++          FindString(params_info_dict, "architecture", m_architecture);
++          FindString(params_info_dict, "device", m_device);
++          FindString(params_info_dict, "description", m_description);
++          m_is_fallback_adapter_initialized = FindBool(params_info_dict, "is_fallback_adapter", m_is_fallback_adapter);
+         }
+-        const base::DictValue* params_limits_dict = params_dict->FindDict("limits");
+-        if (params_limits_dict) {
++        if (const base::DictValue* params_limits_dict = FindDict(params_dict, "limits"); params_limits_dict) {
+           for (auto it = params_limits_dict->begin(); it != params_limits_dict->end(); ++it) {
+             // std::cout << it->first << ": " << it->second << ' ' << it->second.type() << std::endl;
+             if (it->second.is_int()) {
+@@ -53,8 +32,7 @@ bool WebGPU::ParseJson(const absl::optional<base::Value> &json_value) {
+             }
+           }
+         }
+-        const base::DictValue* params_features_dict = params_dict->FindDict("features");
+-        if (params_features_dict) {
++        if (const base::DictValue* params_features_dict = FindDict(params_dict, "features"); params_features_dict) {
+           for (auto it = params_features_dict->begin(); it != params_features_dict->end(); ++it) {
+             // std::cout << it->first << ": " << it->second << ' ' << it->second.type() << std::endl;
+             m_features[it->first] = it->second.GetBool();
+diff --git a/config.json b/config.json
+index 1fc57cb9ef84e..4e673c4892800 100644
+--- a/config.json
++++ b/config.json
+@@ -1,6 +1,6 @@
+ {
+   "canvas": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "width": 0,
+       "height": 0,
+@@ -12,21 +12,21 @@
+     }
+   },
+   "webgl": {
+-    "enabled": false,
++    "enabled": true,
+     "params": {
+       "#unmasked_vendor_webgl": "Google Inc. (Apple)",
+       "#unmasked_renderer_webgl": "ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Pro, Unspecified Version)",
+       "#unmasked_vendor_webgl": "Google Inc. (NVIDIA)",
+-      "#unmasked_renderer_webgl": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11-30.0.14.9676)"
+-    },
+-    "extensions": {
+-      "random_shuffle": false
+-    },
+-    "pixels": {
+-      "x": 0,
+-      "y": 0,
+-      "width": 0,
+-      "height": 0
++      "#unmasked_renderer_webgl": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11-30.0.14.9676)",
++      "extensions": {
++        "random_shuffle": false
++      },
++      "pixels": {
++        "x": 1,
++        "y": 0,
++        "width": 0,
++        "height": 0
++      }
+     }
+   },
+   "fonts": {
+-- 
+2.43.0
+

@@ -1,0 +1,164 @@
+From 2a7d9b542ca5b8587ddd7bf67b5971f0a743a850 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Sun, 7 Sep 2025 19:58:27 +0800
+Subject: [PATCH 09/68] add a_tools module
+
+---
+ BUILD.gn                                      |  6 +++
+ a_tools/BUILD.gn                              | 42 +++++++++++++++++++
+ a_tools/fingerprint/controller.cc             |  8 ++++
+ a_tools/fingerprint/controller.h              | 23 ++++++++++
+ content/browser/BUILD.gn                      |  3 ++
+ .../renderer_host/render_process_host_impl.cc |  4 ++
+ 6 files changed, 86 insertions(+)
+ create mode 100644 a_tools/BUILD.gn
+ create mode 100644 a_tools/fingerprint/controller.cc
+ create mode 100644 a_tools/fingerprint/controller.h
+
+diff --git a/BUILD.gn b/BUILD.gn
+index 24c0b4e0fe208..44f87eca37152 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -875,6 +875,12 @@ group("gn_all") {
+   if (checkout_src_internal) {
+     deps += [ "//internal:all" ]
+   }
++
++  # Yzhyi start
++  deps += [
++    "//a_tools",
++  ]
++  # Yzhyi end
+ }
+ 
+ # All Rust targets. This is provided for convenience while developing Rust to
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+new file mode 100644
+index 0000000000000..cbfb7f46218d2
+--- /dev/null
++++ b/a_tools/BUILD.gn
+@@ -0,0 +1,42 @@
++# 定义一个配置目标，用于导出头文件路径
++config("a_tools_config") {
++  # 声明头文件搜索路径（当前模块目录上一级目录，需要包含 a_tools，即 include "a_tools/..."）
++  include_dirs = [ ".." ]
++}
++
++# 声明静态库目标（自定义模块通常编译为静态库供其他模块链接）
++static_library("a_tools") {
++  # 模块的源代码文件列表
++  sources = [
++    "fingerprint/controller.cc",
++    "fingerprint/controller.h",
++  ]
++
++  # 依赖的其他模块（必须显式声明，Chromium 不支持隐式依赖）
++  # 这里依赖 Chromium 最基础的 base 库（如字符串处理）
++  deps = [
++    "//base",
++  ]
++
++  # 编译配置（继承 Chromium 通用编译规则，如警告等级、C++ 标准等）
++  # 通常使用全局默认配置即可，无需额外添加
++  configs += [ "//build/config/compiler:wexit_time_destructors" ]
++
++  # 可选：限制模块的可见性（默认全局可见，若需私有可设置）
++  # visibility = [ "//src/chrome/*" ]  # 仅允许 chrome 目录下的模块依赖
++
++  # 关键：将配置应用到当前库，并设为 public（让依赖模块继承）
++  public_configs = [ ":a_tools_config" ]
++}
++
++# 可选：添加单元测试目标（推荐）
++# source_set("unit_tests") {
++#   testonly = true  # 标记为测试目标，不会被生产代码依赖
++#   sources = [
++#     "my_module_unittest.cc",  # 需创建对应的测试文件
++#   ]
++#   deps = [
++#     ":a_tools",  // 依赖自身模块
++#     "//testing/gtest",  // 依赖 Chromium 测试框架
++#   ]
++# }
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+new file mode 100644
+index 0000000000000..1e9ad30b43c50
+--- /dev/null
++++ b/a_tools/fingerprint/controller.cc
+@@ -0,0 +1,8 @@
++#include "a_tools/fingerprint/controller.h"
++
++namespace fingerprint {
++
++void Controller::show() {
++  std::cout << "show" << std::endl;
++}
++}
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+new file mode 100644
+index 0000000000000..73400df36cc81
+--- /dev/null
++++ b/a_tools/fingerprint/controller.h
+@@ -0,0 +1,23 @@
++# pragma once
++
++#include <iostream>
++
++namespace fingerprint {
++
++class Controller {
++private:
++  Controller() {}
++  Controller(const Controller&) = delete;
++  Controller& operator=(const Controller&) = delete;
++
++public:
++  __attribute__((visibility("default")))
++  static Controller& GetInstance() {
++    static Controller _controller;
++    return _controller;
++  }
++
++  void show();
++};
++
++} // namespace fingerprint
+diff --git a/content/browser/BUILD.gn b/content/browser/BUILD.gn
+index 2202a76584bc0..b8124c016f1af 100644
+--- a/content/browser/BUILD.gn
++++ b/content/browser/BUILD.gn
+@@ -85,6 +85,9 @@ source_set("browser") {
+   ldflags = []
+ 
+   deps = [
++    # Yzhyi start
++    "//a_tools",
++    # Yzhyi end
+     "//base",
+     "//base:base_static",
+     "//base:clang_profiling_buildflags",
+diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
+index b50ed7faf97a9..5326f0790916b 100644
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -11,6 +11,7 @@
+ #include "base/json/json_reader.h"
+ #include "base/values.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
++#include "a_tools/fingerprint/controller.h"
+ // Yzhyi end
+ 
+ #include "content/browser/renderer_host/render_process_host_impl.h"
+@@ -3369,6 +3370,9 @@ static void AppendCompositorCommandLineFlags(base::CommandLine* command_line) {
+ void RenderProcessHostImpl::AppendRendererCommandLine(
+     ::base::CommandLine* command_line) {
+   // Yzhyi start
++  fingerprint::Controller &ins = fingerprint::Controller::GetInstance();
++  ins.show();
++
+   const ::base::CommandLine* yzhyi_command_line = ::base::CommandLine::ForCurrentProcess();
+   if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
+     std::string yzhyi_command_str = yzhyi_command_line->
+-- 
+2.43.0
+

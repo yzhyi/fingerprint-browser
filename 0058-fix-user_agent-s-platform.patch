@@ -1,0 +1,112 @@
+From c2494eec57702f0e59d93d2c0ae39394fe432fd2 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Mon, 17 Nov 2025 14:44:46 +0800
+Subject: [PATCH 58/68] fix user_agent's platform
+
+---
+ a_tools/README.md                                    |  2 ++
+ config.json                                          | 12 ++++++------
+ .../core/execution_context/navigator_base.cc         | 11 +++++++++++
+ .../blink/renderer/core/frame/navigator_id.cc        |  7 +++++++
+ 4 files changed, 26 insertions(+), 6 deletions(-)
+
+diff --git a/a_tools/README.md b/a_tools/README.md
+index 1907646edf958..4090a445e23cc 100644
+--- a/a_tools/README.md
++++ b/a_tools/README.md
+@@ -33,3 +33,5 @@ chrome_pgo_phase = 0
+ ```c++
+ base/system/sys_info_posix.cc:SysInfo::OperatingSystemArchitecture() -> header 要修改这个
+ ```
++
++# navigator, ua, client hints 要统一
+diff --git a/config.json b/config.json
+index 935a0633c83dd..ddde18108c7df 100644
+--- a/config.json
++++ b/config.json
+@@ -164,14 +164,14 @@
+     }
+   },
+   "navigator": {
+-    "enabled": false,
++    "enabled": true,
+     "params": {
+       "cookie_enabled": false,
+       "webdriver": false,
+       "product_sub": "20030107",
+       "vendor": "Google Inc.",
+       "vendor_sub": "",
+-      "platform": "MacIntel",
++      "platform": "Win32",
+       "//platform": "MacIntel, Win32, Linux x86_64",
+       "app_code_name": "Mozilla",
+       "app_name": "Netscape",
+@@ -196,14 +196,14 @@
+     }
+   },
+   "user_agent": {
+-    "enabled": false,
++    "enabled": true,
+     "params": {
+-      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+-      "//user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
++      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
++      "//user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
+     }
+   },
+   "language": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "language": "zh-CN",
+       "languages": ["zh-CN", "zh"]
+diff --git a/third_party/blink/renderer/core/execution_context/navigator_base.cc b/third_party/blink/renderer/core/execution_context/navigator_base.cc
+index 64bdfb1a106da..3b3d98d12ba80 100644
+--- a/third_party/blink/renderer/core/execution_context/navigator_base.cc
++++ b/third_party/blink/renderer/core/execution_context/navigator_base.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #include "third_party/blink/renderer/core/execution_context/navigator_base.h"
+ 
+ #include "base/feature_list.h"
+@@ -23,6 +27,13 @@ namespace blink {
+ namespace {
+ 
+ String GetReducedNavigatorPlatform() {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &navigator = fingerprint::Controller::GetInstance().GetNavigator(); navigator.Enabled() && !navigator.GetPlatform().empty()) {
++    return String(navigator.GetPlatform());
++  }
++  #endif // ENABLE_FINGERPRINT
++
+ #if BUILDFLAG(IS_ANDROID)
+   return "Linux armv81";
+ #elif BUILDFLAG(IS_MAC)
+diff --git a/third_party/blink/renderer/core/frame/navigator_id.cc b/third_party/blink/renderer/core/frame/navigator_id.cc
+index 4f654a8920efb..c3fa64d6f1e77 100644
+--- a/third_party/blink/renderer/core/frame/navigator_id.cc
++++ b/third_party/blink/renderer/core/frame/navigator_id.cc
+@@ -84,6 +84,13 @@ String NavigatorID::appVersion() {
+ }
+ 
+ String NavigatorID::platform() const {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &navigator = fingerprint::Controller::GetInstance().GetNavigator(); navigator.Enabled() && !navigator.GetPlatform().empty()) {
++    return String(navigator.GetPlatform());
++  }
++  #endif // ENABLE_FINGERPRINT
++
+ #if BUILDFLAG(IS_MAC)
+   // Match Safari and Mozilla on Mac x86.
+   return "MacIntel";
+-- 
+2.43.0
+

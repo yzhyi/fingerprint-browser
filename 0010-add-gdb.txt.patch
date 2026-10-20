@@ -1,0 +1,196 @@
+From 242e01b9b89b9f4141a53e731c8d8b04641dd4cb Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Sun, 7 Sep 2025 22:56:26 +0800
+Subject: [PATCH 10/68] add gdb.txt
+
+---
+ a_tools/fingerprint/controller.cc             | 32 +++++++++++++++++--
+ a_tools/fingerprint/controller.h              | 30 +++++++++++------
+ base/command_line.cc                          |  9 +++---
+ .../renderer_host/render_process_host_impl.cc | 24 ++------------
+ gdb.txt                                       |  5 +++
+ 5 files changed, 62 insertions(+), 38 deletions(-)
+ create mode 100644 gdb.txt
+
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index 1e9ad30b43c50..11e0dd2d3c528 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -1,8 +1,36 @@
++#include <iostream>
+ #include "a_tools/fingerprint/controller.h"
++#include "content/public/common/content_switches.h"
++#include "base/json/json_reader.h"
++#include "base/values.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++#include "third_party/libc++/src/include/__filesystem/path.h"
++#include "base/files/file_util.h"
++#include "base/logging.h"
+ 
+ namespace fingerprint {
+ 
+-void Controller::show() {
+-  std::cout << "show" << std::endl;
++Controller::Controller()
++  : m_command_line(base::CommandLine::ForCurrentProcess()) {
++  if (m_command_line->HasSwitch(switches::kYzhyi)) {
++    m_json_str = m_command_line->
++      GetSwitchValueASCII(switches::kYzhyi);
++  }
+ }
++
++Controller::~Controller() {}
++
++bool Controller::AppendCommandLine(base::CommandLine* command_line) {
++  if (!m_json_str.empty()) {
++    command_line->AppendSwitchASCII(switches::kYzhyi, m_json_str);
++    return true;
++  }
++  return false;
++}
++
++void Controller::PrintJson() {
++  std::cout << m_json_str << std::endl;
++  LOG(INFO) << "---------------hello-------------------";
++}
++
+ }
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index 73400df36cc81..3d6fe4ad68bf4 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -1,23 +1,35 @@
+ # pragma once
+ 
+-#include <iostream>
++#include <string>
++#include <memory>
++#include <mutex>
++#include "base/command_line.h"
+ 
+ namespace fingerprint {
+ 
+ class Controller {
+-private:
+-  Controller() {}
+-  Controller(const Controller&) = delete;
+-  Controller& operator=(const Controller&) = delete;
+-
+ public:
+   __attribute__((visibility("default")))
+   static Controller& GetInstance() {
+-    static Controller _controller;
+-    return _controller;
++    static std::once_flag flag;
++    static Controller* controller = nullptr;
++    std::call_once(flag, []() {
++      controller = new Controller();
++    });
++    return *controller;
+   }
+ 
+-  void show();
++  bool AppendCommandLine(base::CommandLine* command_line);
++  void PrintJson();
++
++private:
++  Controller();
++  ~Controller();
++  Controller(const Controller&) = delete;
++  Controller& operator=(const Controller&) = delete;
++
++  std::unique_ptr<const base::CommandLine> m_command_line;
++  std::string m_json_str;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/base/command_line.cc b/base/command_line.cc
+index 6e6bb4a339f86..83e9fbe0cb5fc 100644
+--- a/base/command_line.cc
++++ b/base/command_line.cc
+@@ -633,12 +633,12 @@ void CommandLine::ParseFromString(StringViewType command_line) {
+ #endif  // BUILDFLAG(IS_WIN)
+ 
+ // Yzhyi start
+-bool isJsonFile(const std::string& filename) {
++bool IsJsonFile(const std::string& filename) {
+     std::filesystem::path filePath(filename);
+     return filePath.extension() == ".json";
+ }
+ 
+-bool isValidJson(const std::string& jsonString) {
++bool IsValidJson(const std::string& jsonString) {
+     auto result =
+         base::JSONReader::ReadAndReturnValueWithError(jsonString);
+ 
+@@ -671,12 +671,11 @@ void CommandLine::AppendSwitchesAndArguments(span<const StringType> argv) {
+       // Yzhyi start
+       const char kYzhyi[] = "--yzhyi";
+       if (switch_string == CommandLine::StringType(kYzhyi)) {
+-      // if (switch_string == CommandLine::StringType("yzhyi")) {
+-        if (isJsonFile(switch_value)) {
++        if (IsJsonFile(switch_value)) {
+           ::base::FilePath path(switch_value);
+           std::string temp_str;
+           ReadFileToString(path, &temp_str);
+-          if (isValidJson(temp_str)) {
++          if (IsValidJson(temp_str)) {
+             switch_value = temp_str;
+           }
+         }
+diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
+index 5326f0790916b..fba5933c4a159 100644
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -6,11 +6,6 @@
+ // channel. There will be one RenderProcessHost per renderer process.
+ 
+ // Yzhyi start
+-#include "base/command_line.h"
+-#include "third_party/blink/public/common/switches.h"
+-#include "base/json/json_reader.h"
+-#include "base/values.h"
+-#include "third_party/abseil-cpp/absl/types/optional.h"
+ #include "a_tools/fingerprint/controller.h"
+ // Yzhyi end
+ 
+@@ -3370,23 +3365,8 @@ static void AppendCompositorCommandLineFlags(base::CommandLine* command_line) {
+ void RenderProcessHostImpl::AppendRendererCommandLine(
+     ::base::CommandLine* command_line) {
+   // Yzhyi start
+-  fingerprint::Controller &ins = fingerprint::Controller::GetInstance();
+-  ins.show();
+-
+-  const ::base::CommandLine* yzhyi_command_line = ::base::CommandLine::ForCurrentProcess();
+-  if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
+-    std::string yzhyi_command_str = yzhyi_command_line->
+-      GetSwitchValueASCII(switches::kYzhyi);
+-    command_line->AppendSwitchASCII(switches::kYzhyi, yzhyi_command_str);
+-      // test start
+-      // absl::optional<base::Value> yzhyi_command_value =
+-      //   base::JSONReader::Read(yzhyi_command_str);
+-      // std::optional<bool> data = yzhyi_command_value->GetDict().FindBool("fonts");
+-      // if (data.has_value() == true) {
+-      //   std::cout << "hello" << std::endl;
+-      // }
+-      // test end
+-  }
++  fingerprint::Controller &controller = fingerprint::Controller::GetInstance();
++  controller.AppendCommandLine(command_line);
+   // Yzhyi end
+ 
+   // Pass the process type first, so it shows first in process listings.
+diff --git a/gdb.txt b/gdb.txt
+new file mode 100644
+index 0000000000000..5e5c7964a6e1a
+--- /dev/null
++++ b/gdb.txt
+@@ -0,0 +1,5 @@
++break ChromeMain
++commands
++  break RenderProcessHostImpl::AppendRendererCommandLine
++  continue
++end
+-- 
+2.43.0
+

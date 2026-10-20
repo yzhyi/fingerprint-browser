@@ -1,0 +1,221 @@
+From cc2a5b0e9da260c6ed27c7bcb96f856e59d101c3 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Tue, 28 Oct 2025 10:46:08 +0800
+Subject: [PATCH 45/68] add window.devicePixelRatio
+
+---
+ a_tools/fingerprint/window/window.cc          |  7 ++++
+ a_tools/fingerprint/window/window.h           |  4 +++
+ config.json                                   |  3 +-
+ .../renderer/core/css/media_values_dynamic.cc |  8 ++---
+ .../blink/renderer/core/frame/local_frame.cc  |  9 ++++++
+ .../blink/renderer/core/frame/screen.cc       | 32 +++++++++----------
+ 6 files changed, 42 insertions(+), 21 deletions(-)
+
+diff --git a/a_tools/fingerprint/window/window.cc b/a_tools/fingerprint/window/window.cc
+index acc013837f183..6011e3eb869f8 100644
+--- a/a_tools/fingerprint/window/window.cc
++++ b/a_tools/fingerprint/window/window.cc
+@@ -28,6 +28,7 @@ bool Window::ParseJson(const absl::optional<base::Value> &json_value) {
+           FindDouble(screen_dict, "color_depth", m_screen.m_color_depth);
+           FindDouble(screen_dict, "pixel_depth", m_screen.m_pixel_depth);
+         }
++        FindDouble(params_dict, "device_pixel_ratio", m_device_pixel_ratio);
+       }
+     }
+     return true;
+@@ -67,4 +68,10 @@ unsigned Window::GetScreenPixelDepth() {
+   return static_cast<unsigned>(m_screen.m_pixel_depth);
+ }
+ 
++void Window::ModifyDevicePixelRatio(double &device_pixel_ratio) {
++  if (m_enabled) {
++    device_pixel_ratio = m_device_pixel_ratio;
++  }
++}
++
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/window/window.h b/a_tools/fingerprint/window/window.h
+index d5a67d8a37578..415d662d62604 100644
+--- a/a_tools/fingerprint/window/window.h
++++ b/a_tools/fingerprint/window/window.h
+@@ -30,6 +30,8 @@ public:
+   BASE_EXPORT unsigned GetScreenColorDepth();
+   BASE_EXPORT unsigned GetScreenPixelDepth();
+ 
++  BASE_EXPORT void ModifyDevicePixelRatio(double &device_pixel_ratio);
++
+ private:
+   struct Screen {
+     double m_width{0};
+@@ -41,6 +43,8 @@ private:
+     double m_color_depth{0};
+     double m_pixel_depth{0};
+   } m_screen;
++
++  double m_device_pixel_ratio{1};
+ };
+ 
+ } // namespace fingerprint
+diff --git a/config.json b/config.json
+index 66bcd5425a575..5b80673cb36da 100644
+--- a/config.json
++++ b/config.json
+@@ -133,7 +133,8 @@
+         "avail_top": 0,
+         "color_depth": 32,
+         "pixel_depth": 32
+-      }
++      },
++      "device_pixel_ratio": 1
+     }
+   }
+ }
+diff --git a/third_party/blink/renderer/core/css/media_values_dynamic.cc b/third_party/blink/renderer/core/css/media_values_dynamic.cc
+index 9bdc2d3593db5..61d038001c2e8 100644
+--- a/third_party/blink/renderer/core/css/media_values_dynamic.cc
++++ b/third_party/blink/renderer/core/css/media_values_dynamic.cc
+@@ -175,8 +175,8 @@ double MediaValuesDynamic::ContainerHeight(const ScopedCSSName&) const {
+ int MediaValuesDynamic::DeviceWidth() const {
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (fingerprint::Controller::GetInstance().GetWindow().Enabled()) {
+-    return fingerprint::Controller::GetInstance().GetWindow().GetScreenWidth();
++  if (auto& window = fingerprint::Controller::GetInstance().GetWindow(); window.Enabled()) {
++    return window.GetScreenWidth();
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+@@ -186,8 +186,8 @@ int MediaValuesDynamic::DeviceWidth() const {
+ int MediaValuesDynamic::DeviceHeight() const {
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (fingerprint::Controller::GetInstance().GetWindow().Enabled()) {
+-    return fingerprint::Controller::GetInstance().GetWindow().GetScreenHeight();
++  if (auto& window = fingerprint::Controller::GetInstance().GetWindow(); window.Enabled()) {
++    return window.GetScreenHeight();
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+diff --git a/third_party/blink/renderer/core/frame/local_frame.cc b/third_party/blink/renderer/core/frame/local_frame.cc
+index 1dddd52f83535..d75765519e61c 100644
+--- a/third_party/blink/renderer/core/frame/local_frame.cc
++++ b/third_party/blink/renderer/core/frame/local_frame.cc
+@@ -28,6 +28,10 @@
+  * Boston, MA 02110-1301, USA.
+  */
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #include "third_party/blink/renderer/core/frame/local_frame.h"
+ 
+ #include <cstdint>
+@@ -1855,6 +1859,11 @@ double LocalFrame::DevicePixelRatio() const {
+ 
+   double ratio = page_->InspectorDeviceScaleFactorOverride();
+   ratio *= LayoutZoomFactor();
++
++  #ifdef ENABLE_FINGERPRINT
++  fingerprint::Controller::GetInstance().GetWindow().ModifyDevicePixelRatio(ratio);
++  #endif // ENABLE_FINGERPRINT
++
+   return ratio;
+ }
+ 
+diff --git a/third_party/blink/renderer/core/frame/screen.cc b/third_party/blink/renderer/core/frame/screen.cc
+index 7e5854229a2dd..0616fd7c078ce 100644
+--- a/third_party/blink/renderer/core/frame/screen.cc
++++ b/third_party/blink/renderer/core/frame/screen.cc
+@@ -123,8 +123,8 @@ int Screen::height() const {
+   }
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (fingerprint::Controller::GetInstance().GetWindow().Enabled()) {
+-    return fingerprint::Controller::GetInstance().GetWindow().GetScreenHeight();
++  if (auto& window = fingerprint::Controller::GetInstance().GetWindow(); window.Enabled()) {
++    return window.GetScreenHeight();
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+@@ -140,8 +140,8 @@ int Screen::width() const {
+   }
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (fingerprint::Controller::GetInstance().GetWindow().Enabled()) {
+-    return fingerprint::Controller::GetInstance().GetWindow().GetScreenWidth();
++  if (auto& window = fingerprint::Controller::GetInstance().GetWindow(); window.Enabled()) {
++    return window.GetScreenWidth();
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+@@ -160,8 +160,8 @@ unsigned Screen::colorDepth() const {
+   }
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (fingerprint::Controller::GetInstance().GetWindow().Enabled()) {
+-    return fingerprint::Controller::GetInstance().GetWindow().GetScreenColorDepth();
++  if (auto& window = fingerprint::Controller::GetInstance().GetWindow(); window.Enabled()) {
++    return window.GetScreenColorDepth();
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+@@ -173,8 +173,8 @@ unsigned Screen::colorDepth() const {
+ unsigned Screen::pixelDepth() const {
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (fingerprint::Controller::GetInstance().GetWindow().Enabled()) {
+-    return fingerprint::Controller::GetInstance().GetWindow().GetScreenPixelDepth();
++  if (auto& window = fingerprint::Controller::GetInstance().GetWindow(); window.Enabled()) {
++    return window.GetScreenPixelDepth();
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+@@ -190,8 +190,8 @@ int Screen::availLeft() const {
+   }
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (fingerprint::Controller::GetInstance().GetWindow().Enabled()) {
+-    return fingerprint::Controller::GetInstance().GetWindow().GetScreenAvailLeft();
++  if (auto& window = fingerprint::Controller::GetInstance().GetWindow(); window.Enabled()) {
++    return window.GetScreenAvailLeft();
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+@@ -207,8 +207,8 @@ int Screen::availTop() const {
+   }
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (fingerprint::Controller::GetInstance().GetWindow().Enabled()) {
+-    return fingerprint::Controller::GetInstance().GetWindow().GetScreenAvailTop();
++  if (auto& window = fingerprint::Controller::GetInstance().GetWindow(); window.Enabled()) {
++    return window.GetScreenAvailTop();
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+@@ -224,8 +224,8 @@ int Screen::availHeight() const {
+   }
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (fingerprint::Controller::GetInstance().GetWindow().Enabled()) {
+-    return fingerprint::Controller::GetInstance().GetWindow().GetScreenAvailHeight();
++  if (auto& window = fingerprint::Controller::GetInstance().GetWindow(); window.Enabled()) {
++    return window.GetScreenAvailHeight();
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+@@ -241,8 +241,8 @@ int Screen::availWidth() const {
+   }
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (fingerprint::Controller::GetInstance().GetWindow().Enabled()) {
+-    return fingerprint::Controller::GetInstance().GetWindow().GetScreenAvailWidth();
++  if (auto& window = fingerprint::Controller::GetInstance().GetWindow(); window.Enabled()) {
++    return window.GetScreenAvailWidth();
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+-- 
+2.43.0
+

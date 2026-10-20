@@ -1,0 +1,137 @@
+From ae12de37089bd29825055c7afe9f3c79d7a4adb5 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Mon, 20 Oct 2025 19:56:20 +0800
+Subject: [PATCH 31/68] fix device_memory
+
+---
+ a_tools/README.md                                 |  5 +++++
+ .../fingerprint/device_memory/device_memory.cc    |  7 ++++---
+ a_tools/fingerprint/device_memory/device_memory.h |  4 ++--
+ base/system/sys_info_linux.cc                     |  1 +
+ config.json                                       | 15 ++++++++++++++-
+ .../device_memory/approximated_device_memory.cc   |  7 -------
+ 6 files changed, 26 insertions(+), 13 deletions(-)
+
+diff --git a/a_tools/README.md b/a_tools/README.md
+index d8b74d9248d95..1c07eafbe8b36 100644
+--- a/a_tools/README.md
++++ b/a_tools/README.md
+@@ -23,3 +23,8 @@ moc_qt6_path="/usr/lib/qt6"
+ google_api_key="AIzaSyDwr302FpOSkGRpLlUpPThNTDPbXcIn_FM"
+ chrome_pgo_phase = 0
+ ```
++
++# TODO
++```c++
++base/system/sys_info_posix.cc:SysInfo::OperatingSystemArchitecture() -> header 要修改这个
++```
+diff --git a/a_tools/fingerprint/device_memory/device_memory.cc b/a_tools/fingerprint/device_memory/device_memory.cc
+index fd599d9522d41..5b505c5419af0 100644
+--- a/a_tools/fingerprint/device_memory/device_memory.cc
++++ b/a_tools/fingerprint/device_memory/device_memory.cc
+@@ -15,7 +15,7 @@ bool DeviceMemory::ParseJson(const absl::optional<base::Value> &json_value) {
+   if (const base::DictValue* dict = FindDict(json_value.value(), "device_memory"); dict) {
+     if (FindBool(dict, "enabled", m_enabled); m_enabled) {
+       if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
+-        FindDouble(params_dict, "gb", m_gb);
++        FindDouble(params_dict, "MiB", m_MiB);
+       }
+     }
+     return true;
+@@ -23,10 +23,11 @@ bool DeviceMemory::ParseJson(const absl::optional<base::Value> &json_value) {
+   return false;
+ }
+ 
+-void DeviceMemory::ModifyDeviceMemory(float &gb) {
++uint64_t DeviceMemory::GetDeviceMemory() {
+   if (m_enabled) {
+-    gb = m_gb;
++    return m_MiB * 1024 * 1024;
+   }
++  return -1;
+ }
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/device_memory/device_memory.h b/a_tools/fingerprint/device_memory/device_memory.h
+index 671292ca8d015..c3986df64b892 100644
+--- a/a_tools/fingerprint/device_memory/device_memory.h
++++ b/a_tools/fingerprint/device_memory/device_memory.h
+@@ -20,10 +20,10 @@ private:
+ 
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+-  void ModifyDeviceMemory(float &gb);
++  uint64_t GetDeviceMemory();
+ 
+ private:
+-  double m_gb{0};
++  double m_MiB{0};
+ };
+ 
+ } // namespace fingerprint
+diff --git a/base/system/sys_info_linux.cc b/base/system/sys_info_linux.cc
+index de42105dc4197..6dd6f21d2a19a 100644
+--- a/base/system/sys_info_linux.cc
++++ b/base/system/sys_info_linux.cc
+@@ -36,6 +36,7 @@ uint64_t AmountOfMemory(int pages_name) {
+   if (pages < 0 || page_size < 0) {
+     return 0;
+   }
++  // TODO: Yzhyi
+   return static_cast<uint64_t>(pages) * static_cast<uint64_t>(page_size);
+ }
+ 
+diff --git a/config.json b/config.json
+index 3c39232d487fd..ac0cb9f41cba1 100644
+--- a/config.json
++++ b/config.json
+@@ -88,7 +88,20 @@
+   "device_memory": {
+     "enabled": true,
+     "params": {
+-      "gb": 2
++      "MiB": 1
++    }
++  },
++  "hardware_concurrency": {
++    "enabled": true,
++    "params": {
++      "cores": 8
++    }
++  },
++  "battery": {
++    "enabled": true,
++    "params": {
++      "charging": true,
++      "level": 0.8
+     }
+   }
+ }
+diff --git a/third_party/blink/common/device_memory/approximated_device_memory.cc b/third_party/blink/common/device_memory/approximated_device_memory.cc
+index c5a5da2b00c6e..ac3de2bc10f4d 100644
+--- a/third_party/blink/common/device_memory/approximated_device_memory.cc
++++ b/third_party/blink/common/device_memory/approximated_device_memory.cc
+@@ -2,10 +2,6 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+-// Yzhyi start
+-#include "a_tools/fingerprint/controller.h"
+-// Yzhyi end
+-
+ #include "third_party/blink/public/common/device_memory/approximated_device_memory.h"
+ 
+ #include "base/check_op.h"
+@@ -28,9 +24,6 @@ void ApproximatedDeviceMemory::Initialize() {
+ 
+ // static
+ float ApproximatedDeviceMemory::GetApproximatedDeviceMemory() {
+-  // Yzhyi start
+-  fingerprint::Controller::GetInstance().GetDeviceMemory().ModifyDeviceMemory(approximated_device_memory_gb_);
+-  // Yzhyi end
+   return approximated_device_memory_gb_;
+ }
+ 
+-- 
+2.43.0
+

@@ -1,0 +1,228 @@
+From 05c4c29bd1cc1ac565c65f5e335da4ccca5ba320 Mon Sep 17 00:00:00 2001
+From: yuzhengyi02 <yuzhengyi02@meituan.com>
+Date: Fri, 19 Sep 2025 11:38:52 +0800
+Subject: [PATCH 26/68] add webrtc
+
+---
+ a_tools/BUILD.gn                     |  2 ++
+ a_tools/fingerprint/canvas/canvas.cc |  2 --
+ a_tools/fingerprint/canvas/canvas.h  |  3 ---
+ a_tools/fingerprint/controller.cc    |  3 ++-
+ a_tools/fingerprint/controller.h     |  3 +++
+ a_tools/fingerprint/fonts/fonts.h    |  3 ---
+ a_tools/fingerprint/webgl/webgl.h    |  3 ---
+ a_tools/fingerprint/webgpu/webgpu.h  |  3 ---
+ a_tools/fingerprint/webrtc/webrtc.cc | 24 ++++++++++++++++++++++++
+ a_tools/fingerprint/webrtc/webrtc.h  | 27 +++++++++++++++++++++++++++
+ config.json                          |  7 ++++++-
+ 11 files changed, 64 insertions(+), 16 deletions(-)
+ create mode 100644 a_tools/fingerprint/webrtc/webrtc.cc
+ create mode 100644 a_tools/fingerprint/webrtc/webrtc.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index 230ce7695a10d..ee29f85cfe0bb 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -24,6 +24,8 @@ static_library("a_tools") {
+     "fingerprint/fonts/fonts.cc",
+     "fingerprint/webgpu/webgpu.h",
+     "fingerprint/webgpu/webgpu.cc",
++    "fingerprint/webrtc/webrtc.h",
++    "fingerprint/webrtc/webrtc.cc",
+   ]
+ 
+   # 依赖的其他模块（必须显式声明，Chromium 不支持隐式依赖）
+diff --git a/a_tools/fingerprint/canvas/canvas.cc b/a_tools/fingerprint/canvas/canvas.cc
+index b1b471777103e..34e3ba9f91725 100644
+--- a/a_tools/fingerprint/canvas/canvas.cc
++++ b/a_tools/fingerprint/canvas/canvas.cc
+@@ -1,5 +1,3 @@
+-#include <iostream>
+-
+ #include "canvas.h"
+ #include "a_tools/fingerprint/utils/parse_json.h"
+ 
+diff --git a/a_tools/fingerprint/canvas/canvas.h b/a_tools/fingerprint/canvas/canvas.h
+index 66288b82d9fc3..0633c4f050fb9 100644
+--- a/a_tools/fingerprint/canvas/canvas.h
++++ b/a_tools/fingerprint/canvas/canvas.h
+@@ -1,8 +1,5 @@
+ # pragma once
+ 
+-#include <string>
+-#include <unordered_map>
+-
+ #include "a_tools/fingerprint/base_fingerprint.h"
+ #include "base/values.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index 2cc5960adacc3..c3141940c61b0 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -14,7 +14,8 @@ Controller::Controller()
+     m_canvas(m_json_value),
+     m_webgl(m_json_value),
+     m_fonts(m_json_value),
+-    m_webgpu(m_json_value)
++    m_webgpu(m_json_value),
++    m_webrtc(m_json_value)
+ {}
+ 
+ Controller::~Controller() = default;
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index 722ede8251a1b..489d37f428c0a 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -12,6 +12,7 @@
+ #include "a_tools/fingerprint/webgl/webgl.h"
+ #include "a_tools/fingerprint/fonts/fonts.h"
+ #include "a_tools/fingerprint/webgpu/webgpu.h"
++#include "a_tools/fingerprint/webrtc/webrtc.h"
+ 
+ namespace fingerprint {
+ 
+@@ -29,6 +30,7 @@ public:
+   WebGL& GetWebGL() { return m_webgl; }
+   Fonts& GetFonts() { return m_fonts; }
+   WebGPU& GetWebGPU() { return m_webgpu; }
++  WebRTC& GetWebRTC() { return m_webrtc; }
+ 
+ private:
+   Controller();
+@@ -43,6 +45,7 @@ private:
+   WebGL m_webgl;
+   Fonts m_fonts;
+   WebGPU m_webgpu;
++  WebRTC m_webrtc;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/fonts/fonts.h b/a_tools/fingerprint/fonts/fonts.h
+index 6f74dcdc2df18..d291441a71bbe 100644
+--- a/a_tools/fingerprint/fonts/fonts.h
++++ b/a_tools/fingerprint/fonts/fonts.h
+@@ -1,8 +1,5 @@
+ # pragma once
+ 
+-#include <string>
+-#include <unordered_map>
+-
+ #include "a_tools/fingerprint/base_fingerprint.h"
+ #include "base/values.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+diff --git a/a_tools/fingerprint/webgl/webgl.h b/a_tools/fingerprint/webgl/webgl.h
+index d76fbb61b02cc..81e7fce5e7da5 100644
+--- a/a_tools/fingerprint/webgl/webgl.h
++++ b/a_tools/fingerprint/webgl/webgl.h
+@@ -1,8 +1,5 @@
+ # pragma once
+ 
+-#include <string>
+-#include <unordered_map>
+-
+ #include "a_tools/fingerprint/base_fingerprint.h"
+ #include "base/values.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+diff --git a/a_tools/fingerprint/webgpu/webgpu.h b/a_tools/fingerprint/webgpu/webgpu.h
+index b9d1da9203a9b..9443bb674b4bd 100644
+--- a/a_tools/fingerprint/webgpu/webgpu.h
++++ b/a_tools/fingerprint/webgpu/webgpu.h
+@@ -1,8 +1,5 @@
+ # pragma once
+ 
+-#include <string>
+-#include <unordered_map>
+-
+ #include "a_tools/fingerprint/base_fingerprint.h"
+ #include "base/values.h"
+ #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+diff --git a/a_tools/fingerprint/webrtc/webrtc.cc b/a_tools/fingerprint/webrtc/webrtc.cc
+new file mode 100644
+index 0000000000000..cead9027f9870
+--- /dev/null
++++ b/a_tools/fingerprint/webrtc/webrtc.cc
+@@ -0,0 +1,24 @@
++#include "webrtc.h"
++#include "a_tools/fingerprint/utils/parse_json.h"
++
++namespace fingerprint {
++
++WebRTC::WebRTC(const absl::optional<base::Value> &json_value) {
++  ParseJson(json_value);
++}
++
++WebRTC::~WebRTC() = default;
++
++bool WebRTC::ParseJson(const absl::optional<base::Value> &json_value) {
++  if (!json_value) return false;
++  if (const base::DictValue* dict = FindDict(json_value.value(), "webrtc"); dict) {
++    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
++      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++      }
++    }
++    return true;
++  }
++  return false;
++}
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/webrtc/webrtc.h b/a_tools/fingerprint/webrtc/webrtc.h
+new file mode 100644
+index 0000000000000..409a051bac38c
+--- /dev/null
++++ b/a_tools/fingerprint/webrtc/webrtc.h
+@@ -0,0 +1,27 @@
++# pragma once
++
++#include "a_tools/fingerprint/base_fingerprint.h"
++#include "base/values.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++
++namespace fingerprint {
++
++class Controller;
++
++class WebRTC : public BaseFingerprint {
++public:
++  friend Controller;
++  WebRTC(const WebRTC&) = delete;
++  WebRTC& operator=(const WebRTC&) = delete;
++
++private:
++  explicit WebRTC(const absl::optional<base::Value> &json_value);
++  ~WebRTC() override;
++  
++public:
++  bool ParseJson(const absl::optional<base::Value> &json_value) override;
++
++private:
++};
++
++} // namespace fingerprint
+diff --git a/config.json b/config.json
+index 4e673c4892800..608186531d4fb 100644
+--- a/config.json
++++ b/config.json
+@@ -12,7 +12,7 @@
+     }
+   },
+   "webgl": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "#unmasked_vendor_webgl": "Google Inc. (Apple)",
+       "#unmasked_renderer_webgl": "ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Pro, Unspecified Version)",
+@@ -56,5 +56,10 @@
+         "depth32float-stencil8": true
+       }
+     }
++  },
++  "webrtc": {
++    "enabled": true,
++    "params": {
++    }
+   }
+ }
+-- 
+2.43.0
+

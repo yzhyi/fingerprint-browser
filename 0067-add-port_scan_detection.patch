@@ -1,0 +1,287 @@
+From 08849868f8ecd3cc5312bf481487aff1dcbc0f78 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Mon, 19 Jan 2026 19:55:33 +0800
+Subject: [PATCH 67/68] add port_scan_detection
+
+---
+ a_tools/BUILD.gn                              |  2 +
+ a_tools/fingerprint/controller.cc             |  3 +-
+ a_tools/fingerprint/controller.h              |  3 ++
+ .../port_scan_protection.cc                   | 38 +++++++++++++++++++
+ .../port_scan_protection.h                    | 21 ++++++++++
+ config.json                                   |  6 +++
+ net/BUILD.gn                                  |  3 ++
+ net/socket/tcp_socket_posix.cc                | 13 +++++++
+ net/socket/tcp_socket_win.cc                  | 13 +++++++
+ .../renderer/modules/websockets/BUILD.gn      |  3 ++
+ .../modules/websockets/websocket_common.cc    | 15 ++++++++
+ 11 files changed, 119 insertions(+), 1 deletion(-)
+ create mode 100644 a_tools/fingerprint/port_scan_protection/port_scan_protection.cc
+ create mode 100644 a_tools/fingerprint/port_scan_protection/port_scan_protection.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index cd19ba77b94ab..7b30c2bfb5fdd 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -59,6 +59,8 @@ source_set("a_tools") {
+     "fingerprint/client_rects/client_rects.cc",
+     "fingerprint/cdp_detection/cdp_detection.h",
+     "fingerprint/cdp_detection/cdp_detection.cc",
++    "fingerprint/port_scan_protection/port_scan_protection.h",
++    "fingerprint/port_scan_protection/port_scan_protection.cc",
+   ]
+   deps = [
+     "//base/allocator/partition_allocator:raw_ptr",
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index 57d8cafc10bca..21c1a70181c9c 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -54,7 +54,8 @@ Controller::Controller()
+     m_user_agent(GetParsedJson(m_enabled, m_json_str)),
+     m_language(GetParsedJson(m_enabled, m_json_str)),
+     m_client_rects(GetParsedJson(m_enabled, m_json_str)),
+-    m_cdp_detection(GetParsedJson(m_enabled, m_json_str))
++    m_cdp_detection(GetParsedJson(m_enabled, m_json_str)),
++    m_port_scan_protection(GetParsedJson(m_enabled, m_json_str))
+ {
+   if (!m_command_line_impl->m_command_line->HasSwitch("type")) {
+     AppendUserAgentCommandLine();
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index 3afc930e2bf30..9c8412c8a5722 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -26,6 +26,7 @@
+ #include "./language/language.h"
+ #include "./client_rects/client_rects.h"
+ #include "./cdp_detection/cdp_detection.h"
++#include "./port_scan_protection/port_scan_protection.h"
+ 
+ namespace base {
+ class CommandLine;
+@@ -65,6 +66,7 @@ public:
+   Language& GetLanguage() { return m_language; }
+   ClientRects& GetClientRects() { return m_client_rects; }
+   CdpDetection& GetCdpDetection() { return m_cdp_detection; }
++  PortScanProtection& GetPortScanProtection() { return m_port_scan_protection; }
+ 
+ private:
+   Controller();
+@@ -95,6 +97,7 @@ private:
+   Language m_language;
+   ClientRects m_client_rects;
+   CdpDetection m_cdp_detection;
++  PortScanProtection m_port_scan_protection;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/port_scan_protection/port_scan_protection.cc b/a_tools/fingerprint/port_scan_protection/port_scan_protection.cc
+new file mode 100644
+index 0000000000000..98ae510be5d5b
+--- /dev/null
++++ b/a_tools/fingerprint/port_scan_protection/port_scan_protection.cc
+@@ -0,0 +1,38 @@
++#include "./port_scan_protection.h"
++#include "../utils/random.h"
++#include "../utils/parse_json.h"
++
++namespace fingerprint {
++
++PortScanProtection::PortScanProtection(const absl::optional<base::Value> &json_value) {
++  ParseJson(json_value);
++}
++
++PortScanProtection::~PortScanProtection() = default;
++
++bool PortScanProtection::ParseJson(const absl::optional<base::Value> &json_value) {
++  if (!json_value) return false;
++  if (const base::DictValue* dict = FindDict(json_value.value(), "port_scan_protection"); dict) {
++    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
++      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        if (const base::ListValue* whitelist_dict = FindList(params_dict, "whitelist"); whitelist_dict) {
++          for (auto& port : *whitelist_dict) {
++            m_whitelist.emplace(static_cast<uint16_t>(port.GetDouble()));
++          }
++        }
++      }
++    }
++    return true;
++  }
++  return false;
++}
++
++bool PortScanProtection::IsProtected(std::string host, uint16_t port) {
++  if ((m_whitelist.find(port) == m_whitelist.end())
++    && (host == "127.0.0.1" || host == "::1" || host == "localhost")) {
++    return true;
++  }
++  return false;
++}
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/port_scan_protection/port_scan_protection.h b/a_tools/fingerprint/port_scan_protection/port_scan_protection.h
+new file mode 100644
+index 0000000000000..3b5e18c80695e
+--- /dev/null
++++ b/a_tools/fingerprint/port_scan_protection/port_scan_protection.h
+@@ -0,0 +1,21 @@
++# pragma once
++
++#include <unordered_set>
++
++#include "../base_fingerprint.h"
++#include "base/base_export.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++
++namespace fingerprint {
++
++FINGERPRINT_CLASS_DECLARE(PortScanProtection);
++
++public:
++  bool IsProtected(std::string host, uint16_t port);
++
++private:
++  std::unordered_set<uint16_t> m_whitelist;
++
++FINGERPRINT_CLASS_END();
++
++} // namespace fingerprint
+diff --git a/config.json b/config.json
+index 3acbd41dfa163..bf9e172c00f6c 100644
+--- a/config.json
++++ b/config.json
+@@ -287,5 +287,11 @@
+         "warn_disabled": true
+       }
+     }
++  },
++  "port_scan_protection": {
++    "enabled": true,
++    "params": {
++      "whitelist": [22, 445]
++    }
+   }
+ }
+diff --git a/net/BUILD.gn b/net/BUILD.gn
+index 3e22ee52c99b6..19da440e92690 100644
+--- a/net/BUILD.gn
++++ b/net/BUILD.gn
+@@ -1798,6 +1798,9 @@ component("net") {
+     ]
+     deps += [ "//sql:sql" ]
+   }
++
++  # ENABLE_FINGERPRINT
++  deps += [ "//a_tools:a_tools" ]
+ }
+ 
+ # net_export.h has its own build target so that code (eg
+diff --git a/net/socket/tcp_socket_posix.cc b/net/socket/tcp_socket_posix.cc
+index c9a8d396d6ddd..1bb40fb2229ec 100644
+--- a/net/socket/tcp_socket_posix.cc
++++ b/net/socket/tcp_socket_posix.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #include "net/socket/tcp_socket.h"
+ 
+ #include <errno.h>
+@@ -290,6 +294,15 @@ int TCPSocketPosix::Connect(const IPEndPoint& address,
+   int rv = socket_->Connect(
+       storage, base::BindOnce(&TCPSocketPosix::ConnectCompleted,
+                               base::Unretained(this), std::move(callback)));
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &port_scan_protection = fingerprint::Controller::GetInstance().GetPortScanProtection(); port_scan_protection.Enabled()) {
++    if (port_scan_protection.IsProtected(address.address().ToString(), address.port())) {
++      rv = ERR_CONNECTION_REFUSED;
++    }
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   if (rv != ERR_IO_PENDING)
+     rv = HandleConnectCompleted(rv);
+   return rv;
+diff --git a/net/socket/tcp_socket_win.cc b/net/socket/tcp_socket_win.cc
+index 5f84107878929..0b9013b8771bd 100644
+--- a/net/socket/tcp_socket_win.cc
++++ b/net/socket/tcp_socket_win.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #include "net/socket/tcp_socket.h"
+ 
+ #include <errno.h>
+@@ -606,6 +610,15 @@ int TCPSocketWin::Connect(const IPEndPoint& address,
+   peer_address_ = std::make_unique<IPEndPoint>(address);
+ 
+   int rv = DoConnect();
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &port_scan_protection = fingerprint::Controller::GetInstance().GetPortScanProtection(); port_scan_protection.Enabled()) {
++    if (port_scan_protection.IsProtected(address.address().ToString(), address.port())) {
++      rv = ERR_CONNECTION_REFUSED;
++    }
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   if (rv == ERR_IO_PENDING) {
+     // Synchronous operation not supported.
+     connect_callback_ = std::move(callback);
+diff --git a/third_party/blink/renderer/modules/websockets/BUILD.gn b/third_party/blink/renderer/modules/websockets/BUILD.gn
+index e66096d7ae6de..b048b5ed60421 100644
+--- a/third_party/blink/renderer/modules/websockets/BUILD.gn
++++ b/third_party/blink/renderer/modules/websockets/BUILD.gn
+@@ -31,4 +31,7 @@ blink_modules_sources("websockets") {
+   ]
+ 
+   deps = [ "//services/network/public/mojom:websocket_mojom" ]
++
++  # ENABLE_FINGERPRINT
++  deps += [ "//a_tools:a_tools" ]
+ }
+diff --git a/third_party/blink/renderer/modules/websockets/websocket_common.cc b/third_party/blink/renderer/modules/websockets/websocket_common.cc
+index a013c29981a5d..01f41c9c4e530 100644
+--- a/third_party/blink/renderer/modules/websockets/websocket_common.cc
++++ b/third_party/blink/renderer/modules/websockets/websocket_common.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #include "third_party/blink/renderer/modules/websockets/websocket_common.h"
+ 
+ #include <stddef.h>
+@@ -83,6 +87,17 @@ WebSocketCommon::ConnectResult WebSocketCommon::Connect(
+     return ConnectResult::kException;
+   }
+ 
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &port_scan_protection = fingerprint::Controller::GetInstance().GetPortScanProtection(); port_scan_protection.Enabled()) {
++    if (port_scan_protection.IsProtected(url_.Host().ToString().Ascii(), url_.Port())) {
++      state_ = kClosed;
++      exception_state.ThrowSecurityError(
++          "WebSocket connections to localhost are not allowed.");
++      return ConnectResult::kException;
++    }
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   if (url_.HasFragmentIdentifier()) {
+     state_ = kClosed;
+     exception_state.ThrowDOMException(
+-- 
+2.43.0
+

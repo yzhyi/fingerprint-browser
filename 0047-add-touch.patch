@@ -1,0 +1,237 @@
+From 121a3cc4d3fa4955e16e80b3889759874318598f Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Tue, 28 Oct 2025 16:16:16 +0800
+Subject: [PATCH 47/68] add touch
+
+---
+ a_tools/BUILD.gn                              |  2 ++
+ a_tools/fingerprint/controller.cc             |  3 +-
+ a_tools/fingerprint/controller.h              |  3 ++
+ a_tools/fingerprint/touch/touch.cc            | 35 +++++++++++++++++++
+ a_tools/fingerprint/touch/touch.h             | 31 ++++++++++++++++
+ config.json                                   |  8 ++++-
+ .../blink/renderer/core/css/media_values.cc   | 11 ++++++
+ .../renderer/core/events/navigator_events.cc  | 11 ++++++
+ 8 files changed, 102 insertions(+), 2 deletions(-)
+ create mode 100644 a_tools/fingerprint/touch/touch.cc
+ create mode 100644 a_tools/fingerprint/touch/touch.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index 1b2d30cfedacf..f8b994953e021 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -43,6 +43,8 @@ source_set("a_tools") {
+     "fingerprint/network_information/network_information.cc",
+     "fingerprint/window_screen/window_screen.h",
+     "fingerprint/window_screen/window_screen.cc",
++    "fingerprint/touch/touch.h",
++    "fingerprint/touch/touch.cc",
+   ]
+   deps = [
+     "//base/allocator/partition_allocator:raw_ptr",
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index 91ff4db51dc88..9047ede5ec5f6 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -21,7 +21,8 @@ Controller::Controller()
+     m_hardware_concurrency(m_json_value),
+     m_battery(m_json_value),
+     m_network_information(m_json_value),
+-    m_window_screen(m_json_value)
++    m_window_screen(m_json_value),
++    m_touch(m_json_value)
+ {}
+ 
+ Controller::~Controller() = default;
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index e2b651943f2e8..0b9dc6a1ec0be 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -19,6 +19,7 @@
+ #include "./battery/battery.h"
+ #include "./network_information/network_information.h"
+ #include "./window_screen/window_screen.h"
++#include "./touch/touch.h"
+ 
+ namespace fingerprint {
+ 
+@@ -43,6 +44,7 @@ public:
+   Battery& GetBattery() { return m_battery; }
+   NetworkInformation& GetNetworkInformation() { return m_network_information; }
+   WindowScreen& GetWindowScreen() { return m_window_screen; }
++  Touch& GetTouch() { return m_touch; }
+ 
+ private:
+   Controller();
+@@ -64,6 +66,7 @@ private:
+   Battery m_battery;
+   NetworkInformation m_network_information;
+   WindowScreen m_window_screen;
++  Touch m_touch;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/touch/touch.cc b/a_tools/fingerprint/touch/touch.cc
+new file mode 100644
+index 0000000000000..e22dc1d9fab7a
+--- /dev/null
++++ b/a_tools/fingerprint/touch/touch.cc
+@@ -0,0 +1,35 @@
++#include "./touch.h"
++#include "../utils/random.h"
++#include "../utils/parse_json.h"
++#include "ui/base/pointer/pointer_device.h"
++
++namespace fingerprint {
++
++Touch::Touch(const absl::optional<base::Value> &json_value) {
++  ParseJson(json_value);
++}
++
++Touch::~Touch() = default;
++
++bool Touch::ParseJson(const absl::optional<base::Value> &json_value) {
++  if (!json_value) return false;
++  if (const base::DictValue* dict = FindDict(json_value.value(), "touch"); dict) {
++    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
++      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        FindDouble(params_dict, "max_touch_points", m_max_touch_points);
++      }
++    }
++    return true;
++  }
++  return false;
++}
++
++int32_t Touch::GetMaxTouchPoints() {
++  return static_cast<int32_t>(m_max_touch_points);
++}
++
++int Touch::GetPointerTypes() {
++  return ui::PointerType::POINTER_TYPE_COARSE;
++}
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/touch/touch.h b/a_tools/fingerprint/touch/touch.h
+new file mode 100644
+index 0000000000000..6febf998dae8a
+--- /dev/null
++++ b/a_tools/fingerprint/touch/touch.h
+@@ -0,0 +1,31 @@
++# pragma once
++
++#include "../base_fingerprint.h"
++#include "base/values.h"
++#include "base/base_export.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++
++namespace fingerprint {
++
++class Controller;
++
++class Touch : public BaseFingerprint {
++public:
++  friend Controller;
++  Touch(const Touch&) = delete;
++  Touch& operator=(const Touch&) = delete;
++
++private:
++  explicit Touch(const absl::optional<base::Value> &json_value);
++  ~Touch() override;
++
++public:
++  bool ParseJson(const absl::optional<base::Value> &json_value) override;
++  BASE_EXPORT int32_t GetMaxTouchPoints();
++  BASE_EXPORT int GetPointerTypes();
++
++private:
++  double m_max_touch_points{0};
++};
++
++} // namespace fingerprint
+diff --git a/config.json b/config.json
+index 0a7de7e792888..6a267a7b4708a 100644
+--- a/config.json
++++ b/config.json
+@@ -122,7 +122,7 @@
+     }
+   },
+   "window_screen": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "screen": {
+         "width": 2560,
+@@ -144,5 +144,11 @@
+       },
+       "device_pixel_ratio": 1
+     }
++  },
++  "touch": {
++    "enabled": true,
++    "params": {
++      "max_touch_points": 5
++    }
+   }
+ }
+diff --git a/third_party/blink/renderer/core/css/media_values.cc b/third_party/blink/renderer/core/css/media_values.cc
+index 7b16f7e47742b..7a200ccf9e08a 100644
+--- a/third_party/blink/renderer/core/css/media_values.cc
++++ b/third_party/blink/renderer/core/css/media_values.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #include "third_party/blink/renderer/core/css/media_values.h"
+ 
+ #include "third_party/blink/public/common/css/scripting.h"
+@@ -373,6 +377,13 @@ mojom::blink::PointerType MediaValues::CalculatePrimaryPointerType(
+ int MediaValues::CalculateAvailablePointerTypes(LocalFrame* frame) {
+   DCHECK(frame);
+   DCHECK(frame->GetSettings());
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto& touch = fingerprint::Controller::GetInstance().GetTouch(); touch.Enabled()) {
++    return touch.GetPointerTypes();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return frame->GetSettings()->GetAvailablePointerTypes();
+ }
+ 
+diff --git a/third_party/blink/renderer/core/events/navigator_events.cc b/third_party/blink/renderer/core/events/navigator_events.cc
+index a57561775c119..f42dfa5a92c58 100644
+--- a/third_party/blink/renderer/core/events/navigator_events.cc
++++ b/third_party/blink/renderer/core/events/navigator_events.cc
+@@ -28,6 +28,10 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #include "third_party/blink/renderer/core/events/navigator_events.h"
+ 
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+@@ -38,6 +42,13 @@
+ namespace blink {
+ 
+ int32_t NavigatorEvents::maxTouchPoints(Navigator& navigator) {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto& touch = fingerprint::Controller::GetInstance().GetTouch(); touch.Enabled()) {
++    return touch.GetMaxTouchPoints();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   LocalDOMWindow* window = navigator.DomWindow();
+   return window ? window->GetFrame()->GetSettings()->GetMaxTouchPoints() : 0;
+ }
+-- 
+2.43.0
+

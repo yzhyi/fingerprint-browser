@@ -1,0 +1,702 @@
+From 8aaec2b21b12f130d5a3d1acab98d89de81a8d2c Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Sat, 27 Sep 2025 19:47:47 +0800
+Subject: [PATCH 29/68] add README.md
+
+---
+ a_tools/BUILD.gn                              | 13 ++--
+ a_tools/README.md                             | 25 +++++++
+ advanced_example/BUILD.gn                     |  8 ++
+ advanced_example/app/BUILD.gn                 | 15 ++++
+ advanced_example/app/main.cpp                 | 68 +++++++++++++++++
+ advanced_example/customer/BUILD.gn            | 17 +++++
+ advanced_example/customer/customer.cpp        | 73 +++++++++++++++++++
+ advanced_example/customer/customer.h          | 33 +++++++++
+ .../customer/customer_factory.cpp             |  6 ++
+ advanced_example/customer/customer_factory.h  |  9 +++
+ advanced_example/interfaces/BUILD.gn          | 41 +++++++++++
+ advanced_example/interfaces/base_interfaces.h | 27 +++++++
+ .../interfaces/customer_interface.h           | 27 +++++++
+ .../interfaces/product_interface.h            | 28 +++++++
+ advanced_example/product/BUILD.gn             | 17 +++++
+ advanced_example/product/product.cpp          | 71 ++++++++++++++++++
+ advanced_example/product/product.h            | 34 +++++++++
+ advanced_example/product/product_factory.cpp  |  6 ++
+ advanced_example/product/product_factory.h    |  9 +++
+ 19 files changed, 522 insertions(+), 5 deletions(-)
+ create mode 100644 a_tools/README.md
+ create mode 100644 advanced_example/BUILD.gn
+ create mode 100644 advanced_example/app/BUILD.gn
+ create mode 100644 advanced_example/app/main.cpp
+ create mode 100644 advanced_example/customer/BUILD.gn
+ create mode 100644 advanced_example/customer/customer.cpp
+ create mode 100644 advanced_example/customer/customer.h
+ create mode 100644 advanced_example/customer/customer_factory.cpp
+ create mode 100644 advanced_example/customer/customer_factory.h
+ create mode 100644 advanced_example/interfaces/BUILD.gn
+ create mode 100644 advanced_example/interfaces/base_interfaces.h
+ create mode 100644 advanced_example/interfaces/customer_interface.h
+ create mode 100644 advanced_example/interfaces/product_interface.h
+ create mode 100644 advanced_example/product/BUILD.gn
+ create mode 100644 advanced_example/product/product.cpp
+ create mode 100644 advanced_example/product/product.h
+ create mode 100644 advanced_example/product/product_factory.cpp
+ create mode 100644 advanced_example/product/product_factory.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index 7423e7f9602f6..4e742e46de01e 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -30,19 +30,22 @@ static_library("a_tools") {
+     "fingerprint/tls/tls.cc",
+   ]
+ 
+-  # 依赖的其他模块（必须显式声明，Chromium 不支持隐式依赖）
+-  # 这里依赖 Chromium 最基础的 base 库（如字符串处理）
+-  deps = [
++  public_deps = [
+     "//base",
++  ]
++  deps = [
+     "//third_party/webrtc_overrides:webrtc_component",
++  #"//advanced_example:default",
++  #"//advanced_example/interfaces:all_interfaces",
++  #"//advanced_example/product:product_impl",
++  #"//advanced_example/customer:customer_impl",
+   ]
+ 
+   # 编译配置（继承 Chromium 通用编译规则，如警告等级、C++ 标准等）
+   # 通常使用全局默认配置即可，无需额外添加
+   configs += [ "//build/config/compiler:wexit_time_destructors" ]
+ 
+-  # 可选：限制模块的可见性（默认全局可见，若需私有可设置）
+-  # visibility = [ "//src/chrome/*" ]  # 仅允许 chrome 目录下的模块依赖
++  visibility = [ "*" ]  # 允许所有目标依赖
+ 
+   # 关键：将配置应用到当前库，并设为 public（让依赖模块继承）
+   public_configs = [ ":a_tools_config" ]
+diff --git a/a_tools/README.md b/a_tools/README.md
+new file mode 100644
+index 0000000000000..d8b74d9248d95
+--- /dev/null
++++ b/a_tools/README.md
+@@ -0,0 +1,25 @@
++# compile flag
++```bash
++# custom_toolchain="//build/toolchain/linux/unbundle:default"
++# host_toolchain="//build/toolchain/linux/unbundle:default"
++# is_official_build=true
++symbol_level=0
++treat_warnings_as_errors=false
++fatal_linker_warnings=false
++disable_fieldtrial_testing_config=true
++blink_enable_generated_code_formatting=false
++ffmpeg_branding="Chrome"
++proprietary_codecs=true
++rtc_use_pipewire=true
++link_pulseaudio=true
++use_custom_libcxx=true
++use_sysroot=false
++use_system_libffi=true
++enable_hangout_services_extension=true
++enable_widevine=true
++use_qt5=true
++use_qt6=true
++moc_qt6_path="/usr/lib/qt6"
++google_api_key="AIzaSyDwr302FpOSkGRpLlUpPThNTDPbXcIn_FM"
++chrome_pgo_phase = 0
++```
+diff --git a/advanced_example/BUILD.gn b/advanced_example/BUILD.gn
+new file mode 100644
+index 0000000000000..5372b35c8297a
+--- /dev/null
++++ b/advanced_example/BUILD.gn
+@@ -0,0 +1,8 @@
++# 高级示例根构建文件
++
++# 默认组，引用所有子目录的构建目标
++group("default") {
++  deps = [
++    "//advanced_example/app:advanced_example",
++  ]
++}
+diff --git a/advanced_example/app/BUILD.gn b/advanced_example/app/BUILD.gn
+new file mode 100644
+index 0000000000000..410ee630808be
+--- /dev/null
++++ b/advanced_example/app/BUILD.gn
+@@ -0,0 +1,15 @@
++# 应用程序构建文件
++
++# 主程序 - 组装层
++executable("advanced_example") {
++  sources = [
++    "main.cpp",
++  ]
++
++  # 依赖所有具体实现
++  deps = [
++    "//advanced_example/interfaces:all_interfaces",
++    "//advanced_example/product:product_impl",
++    "//advanced_example/customer:customer_impl",
++  ]
++}
+diff --git a/advanced_example/app/main.cpp b/advanced_example/app/main.cpp
+new file mode 100644
+index 0000000000000..944ffefce1975
+--- /dev/null
++++ b/advanced_example/app/main.cpp
+@@ -0,0 +1,68 @@
++
++#include <iostream>
++#include <memory>
++#include <string>
++
++// 包含接口头文件
++#include "../interfaces/base_interfaces.h"
++#include "../interfaces/product_interface.h"
++#include "../interfaces/customer_interface.h"
++
++// 包含实现头文件
++#include "../product/product.h"
++#include "../product/product_factory.h"
++#include "../customer/customer.h"
++#include "../customer/customer_factory.h"
++
++int main() {
++    std::cout << "===== 高级接口层示例 =====" << std::endl << std::endl;
++
++    // 创建工厂
++    std::shared_ptr<IProductFactory> productFactory = std::make_shared<ProductFactory>();
++    std::shared_ptr<ICustomerFactory> customerFactory = std::make_shared<CustomerFactory>();
++
++    // 使用工厂创建对象
++    std::shared_ptr<ICustomer> customer1 = customerFactory->createCustomer("张三");
++    std::shared_ptr<ICustomer> customer2 = customerFactory->createCustomer("李四");
++
++    std::shared_ptr<IProduct> product1 = productFactory->createProduct("笔记本电脑", 5999.99);
++    std::shared_ptr<IProduct> product2 = productFactory->createProduct("智能手机", 3999.99);
++    std::shared_ptr<IProduct> product3 = productFactory->createProduct("耳机", 999.99);
++
++    std::cout << std::endl;
++
++    // 建立关系
++    product1->setCustomer(customer1);  // 产品关联客户
++    product2->setCustomer(customer1);
++    product3->setCustomer(customer2);
++
++    customer1->addProduct(product1);   // 客户购买产品
++    customer1->addProduct(product2);
++    customer2->addProduct(product3);
++
++    std::cout << std::endl;
++
++    // 显示结果
++    std::cout << "客户 " << customer1->getName() << " 的产品列表:" << std::endl;
++    double total1 = customer1->getTotalSpent();
++    std::cout << "  总价: ¥" << total1 << std::endl;
++
++    std::cout << std::endl;
++
++    std::cout << "客户 " << customer2->getName() << " 的产品列表:" << std::endl;
++    double total2 = customer2->getTotalSpent();
++    std::cout << "  总价: ¥" << total2 << std::endl;
++
++    std::cout << std::endl;
++    std::cout << "===== 依赖关系分析 =====" << std::endl;
++    std::cout << "Product 类 → 依赖 ICustomer 接口 (不依赖 Customer 类)" << std::endl;
++    std::cout << "Customer 类 → 依赖 IProduct 接口 (不依赖 Product 类)" << std::endl;
++    std::cout << "IProduct 接口 → 依赖 ISerializable, IIdentifiable, INamable 接口" << std::endl;
++    std::cout << "ICustomer 接口 → 依赖 ISerializable, IIdentifiable, INamable 接口" << std::endl;
++    std::cout << std::endl;
++    std::cout << "✓ 没有循环依赖！" << std::endl;
++
++    // customer_test();
++
++    return 0;
++}
+diff --git a/advanced_example/customer/BUILD.gn b/advanced_example/customer/BUILD.gn
+new file mode 100644
+index 0000000000000..5b507f0d4d75f
+--- /dev/null
++++ b/advanced_example/customer/BUILD.gn
+@@ -0,0 +1,17 @@
++# 客户实现构建文件
++
++# 客户实现
++source_set("customer_impl") {
++  sources = [
++    "customer.h",
++    "customer.cpp",
++    "customer_factory.h",
++    "customer_factory.cpp",
++  ]
++
++  # 只依赖客户接口和产品接口，不依赖产品实现
++  public_deps = [
++    "//advanced_example/interfaces:customer_interface",
++    "//advanced_example/interfaces:product_interface",  # 只需要接口，不需要实现
++  ]
++}
+diff --git a/advanced_example/customer/customer.cpp b/advanced_example/customer/customer.cpp
+new file mode 100644
+index 0000000000000..3fd2b0d9c6683
+--- /dev/null
++++ b/advanced_example/customer/customer.cpp
+@@ -0,0 +1,73 @@
++#include "customer.h"
++#include "../interfaces/product_interface.h"
++#include <iostream>
++#include <sstream>
++#include <random>
++
++Customer::Customer(const std::string& name) : name_(name) {
++    // 生成随机ID
++    std::random_device rd;
++    std::mt19937 gen(rd());
++    std::uniform_int_distribution<> dis(10000, 99999);
++    id_ = "C" + std::to_string(dis(gen));
++}
++
++Customer::~Customer() = default;
++
++std::string Customer::getId() const {
++    return id_;
++}
++
++std::string Customer::getName() const {
++    return name_;
++}
++
++void Customer::setName(const std::string& name) {
++    name_ = name;
++}
++
++std::string Customer::serialize() const {
++    std::stringstream ss;
++    ss << id_ << "," << name_ << "," << products_.size();
++    return ss.str();
++}
++
++bool Customer::deserialize(const std::string& data) {
++    std::stringstream ss(data);
++    std::string id, name;
++    size_t productCount;
++
++    std::getline(ss, id, ',');
++    std::getline(ss, name, ',');
++    ss >> productCount;
++
++    if (ss.fail()) {
++        return false;
++    }
++
++    id_ = id;
++    name_ = name;
++    return true;
++}
++
++void Customer::addProduct(std::shared_ptr<IProduct> product) {
++    products_.push_back(product);
++    std::cout << "客户 " << name_ << " 购买了产品: " << product->getName() << std::endl;
++}
++
++std::vector<std::shared_ptr<IProduct>> Customer::getProducts() const {
++    return products_;
++}
++
++double Customer::getTotalSpent() const {
++    double total = 0.0;
++    for (const auto& product : products_) {
++        std::cout << "  - " << product->getName() << ": ¥" << product->getPrice() << std::endl;
++        total += product->getPrice();
++    }
++    return total;
++}
++
++void customer_test() {
++    std::cout << "--------------------------------------" << std::endl;
++}
+diff --git a/advanced_example/customer/customer.h b/advanced_example/customer/customer.h
+new file mode 100644
+index 0000000000000..a4a16b2330e63
+--- /dev/null
++++ b/advanced_example/customer/customer.h
+@@ -0,0 +1,33 @@
++#pragma once
++
++#include "../interfaces/customer_interface.h"
++#include <vector>
++#include <string>
++
++// 客户实现类
++class Customer : public ICustomer {
++private:
++    std::string id_;
++    std::string name_;
++    std::vector<std::shared_ptr<IProduct>> products_;
++
++public:
++    Customer(const std::string& name);
++    ~Customer() override;
++
++    // IIdentifiable接口实现
++    std::string getId() const override;
++
++    // INamable接口实现
++    std::string getName() const override;
++    void setName(const std::string& name) override;
++
++    // ISerializable接口实现
++    std::string serialize() const override;
++    bool deserialize(const std::string& data) override;
++
++    // ICustomer接口实现
++    void addProduct(std::shared_ptr<IProduct> product) override;
++    std::vector<std::shared_ptr<IProduct>> getProducts() const override;
++    double getTotalSpent() const override;
++};
+diff --git a/advanced_example/customer/customer_factory.cpp b/advanced_example/customer/customer_factory.cpp
+new file mode 100644
+index 0000000000000..3328853ba6713
+--- /dev/null
++++ b/advanced_example/customer/customer_factory.cpp
+@@ -0,0 +1,6 @@
++#include "customer_factory.h"
++#include "customer.h"
++
++std::shared_ptr<ICustomer> CustomerFactory::createCustomer(const std::string& name) {
++    return std::make_shared<Customer>(name);
++}
+diff --git a/advanced_example/customer/customer_factory.h b/advanced_example/customer/customer_factory.h
+new file mode 100644
+index 0000000000000..f6d9d084caf4e
+--- /dev/null
++++ b/advanced_example/customer/customer_factory.h
+@@ -0,0 +1,9 @@
++#pragma once
++
++#include "../interfaces/customer_interface.h"
++
++// 客户工厂实现
++class CustomerFactory : public ICustomerFactory {
++public:
++    std::shared_ptr<ICustomer> createCustomer(const std::string& name) override;
++};
+diff --git a/advanced_example/interfaces/BUILD.gn b/advanced_example/interfaces/BUILD.gn
+new file mode 100644
+index 0000000000000..69c3b1b030e17
+--- /dev/null
++++ b/advanced_example/interfaces/BUILD.gn
+@@ -0,0 +1,41 @@
++# 接口层构建文件
++
++# 基础接口
++source_set("base_interfaces") {
++  sources = [
++    "base_interfaces.h",
++  ]
++}
++
++# 产品接口 - 依赖基础接口
++source_set("product_interface") {
++  sources = [
++    "product_interface.h",
++  ]
++
++  # 使用public_deps而不是deps，因为我们需要传递接口给依赖者
++  public_deps = [
++    ":base_interfaces",
++  ]
++}
++
++# 客户接口 - 依赖基础接口
++source_set("customer_interface") {
++  sources = [
++    "customer_interface.h",
++  ]
++
++  # 使用public_deps而不是deps，因为我们需要传递接口给依赖者
++  public_deps = [
++    ":base_interfaces",
++  ]
++}
++
++# 所有接口的集合
++group("all_interfaces") {
++  public_deps = [
++    ":base_interfaces",
++    ":product_interface",
++    ":customer_interface",
++  ]
++}
+diff --git a/advanced_example/interfaces/base_interfaces.h b/advanced_example/interfaces/base_interfaces.h
+new file mode 100644
+index 0000000000000..1115cddaf74fa
+--- /dev/null
++++ b/advanced_example/interfaces/base_interfaces.h
+@@ -0,0 +1,27 @@
++#pragma once
++
++#include <memory>
++#include <string>
++
++// 基础可序列化接口
++class ISerializable {
++public:
++    virtual ~ISerializable() = default;
++    virtual std::string serialize() const = 0;
++    virtual bool deserialize(const std::string& data) = 0;
++};
++
++// 基础可标识接口
++class IIdentifiable {
++public:
++    virtual ~IIdentifiable() = default;
++    virtual std::string getId() const = 0;
++};
++
++// 基础可命名接口
++class INamable {
++public:
++    virtual ~INamable() = default;
++    virtual std::string getName() const = 0;
++    virtual void setName(const std::string& name) = 0;
++};
+diff --git a/advanced_example/interfaces/customer_interface.h b/advanced_example/interfaces/customer_interface.h
+new file mode 100644
+index 0000000000000..d78135bfec4a4
+--- /dev/null
++++ b/advanced_example/interfaces/customer_interface.h
+@@ -0,0 +1,27 @@
++#pragma once
++
++#include "base_interfaces.h"
++#include <vector>
++
++// 前向声明
++class IProduct;
++
++// 客户接口 - 继承多个基础接口
++class ICustomer : public ISerializable, public IIdentifiable, public INamable {
++public:
++    ~ICustomer() override = default;
++
++    // 客户特有方法
++    virtual void addProduct(std::shared_ptr<IProduct> product) = 0;
++    virtual std::vector<std::shared_ptr<IProduct>> getProducts() const = 0;
++    virtual double getTotalSpent() const = 0;
++};
++
++// 客户工厂接口
++class ICustomerFactory {
++public:
++    virtual ~ICustomerFactory() = default;
++    virtual std::shared_ptr<ICustomer> createCustomer(const std::string& name) = 0;
++};
++
++void customer_test();
+diff --git a/advanced_example/interfaces/product_interface.h b/advanced_example/interfaces/product_interface.h
+new file mode 100644
+index 0000000000000..f6d2fb125594c
+--- /dev/null
++++ b/advanced_example/interfaces/product_interface.h
+@@ -0,0 +1,28 @@
++#pragma once
++
++#include "base_interfaces.h"
++#include <vector>
++
++// 前向声明
++class ICustomer;
++
++// 产品接口 - 继承多个基础接口
++class IProduct : public ISerializable, public IIdentifiable, public INamable {
++public:
++    ~IProduct() override = default;
++
++    // 产品特有方法
++    virtual double getPrice() const = 0;
++    virtual void setPrice(double price) = 0;
++
++    // 关联客户的方法
++    virtual void setCustomer(std::shared_ptr<ICustomer> customer) = 0;
++    virtual std::shared_ptr<ICustomer> getCustomer() const = 0;
++};
++
++// 产品工厂接口
++class IProductFactory {
++public:
++    virtual ~IProductFactory() = default;
++    virtual std::shared_ptr<IProduct> createProduct(const std::string& name, double price) = 0;
++};
+diff --git a/advanced_example/product/BUILD.gn b/advanced_example/product/BUILD.gn
+new file mode 100644
+index 0000000000000..60f42189d0805
+--- /dev/null
++++ b/advanced_example/product/BUILD.gn
+@@ -0,0 +1,17 @@
++# 产品实现构建文件
++
++# 产品实现
++source_set("product_impl") {
++  sources = [
++    "product.h",
++    "product.cpp",
++    "product_factory.h",
++    "product_factory.cpp",
++  ]
++
++  # 只依赖产品接口和客户接口，不依赖客户实现
++  public_deps = [
++    "//advanced_example/interfaces:product_interface",
++    "//advanced_example/interfaces:customer_interface",  # 只需要接口，不需要实现
++  ]
++}
+diff --git a/advanced_example/product/product.cpp b/advanced_example/product/product.cpp
+new file mode 100644
+index 0000000000000..72cab85b165ef
+--- /dev/null
++++ b/advanced_example/product/product.cpp
+@@ -0,0 +1,71 @@
++#include "product.h"
++#include "../interfaces/customer_interface.h"
++#include <iostream>
++#include <sstream>
++#include <iomanip>
++#include <random>
++
++Product::Product(const std::string& name, double price)
++    : name_(name), price_(price) {
++    // 生成随机ID
++    std::random_device rd;
++    std::mt19937 gen(rd());
++    std::uniform_int_distribution<> dis(10000, 99999);
++    id_ = "P" + std::to_string(dis(gen));
++}
++
++Product::~Product() = default;
++
++std::string Product::getId() const {
++    return id_;
++}
++
++std::string Product::getName() const {
++    return name_;
++}
++
++void Product::setName(const std::string& name) {
++    name_ = name;
++}
++
++std::string Product::serialize() const {
++    std::stringstream ss;
++    ss << id_ << "," << name_ << "," << std::fixed << std::setprecision(2) << price_;
++    return ss.str();
++}
++
++bool Product::deserialize(const std::string& data) {
++    std::stringstream ss(data);
++    std::string id, name;
++    double price;
++
++    std::getline(ss, id, ',');
++    std::getline(ss, name, ',');
++    ss >> price;
++
++    if (ss.fail()) {
++        return false;
++    }
++
++    id_ = id;
++    name_ = name;
++    price_ = price;
++    return true;
++}
++
++double Product::getPrice() const {
++    return price_;
++}
++
++void Product::setPrice(double price) {
++    price_ = price;
++}
++
++void Product::setCustomer(std::shared_ptr<ICustomer> customer) {
++    customer_ = customer;
++    std::cout << "产品 " << name_ << " 被分配给客户: " << customer->getName() << std::endl;
++}
++
++std::shared_ptr<ICustomer> Product::getCustomer() const {
++    return customer_;
++}
+diff --git a/advanced_example/product/product.h b/advanced_example/product/product.h
+new file mode 100644
+index 0000000000000..1315fde35c45f
+--- /dev/null
++++ b/advanced_example/product/product.h
+@@ -0,0 +1,34 @@
++#pragma once
++
++#include "../interfaces/product_interface.h"
++#include <string>
++
++// 产品实现类
++class Product : public IProduct {
++private:
++    std::string id_;
++    std::string name_;
++    double price_;
++    std::shared_ptr<ICustomer> customer_;
++
++public:
++    Product(const std::string& name, double price);
++    ~Product() override;
++
++    // IIdentifiable接口实现
++    std::string getId() const override;
++
++    // INamable接口实现
++    std::string getName() const override;
++    void setName(const std::string& name) override;
++
++    // ISerializable接口实现
++    std::string serialize() const override;
++    bool deserialize(const std::string& data) override;
++
++    // IProduct接口实现
++    double getPrice() const override;
++    void setPrice(double price) override;
++    void setCustomer(std::shared_ptr<ICustomer> customer) override;
++    std::shared_ptr<ICustomer> getCustomer() const override;
++};
+diff --git a/advanced_example/product/product_factory.cpp b/advanced_example/product/product_factory.cpp
+new file mode 100644
+index 0000000000000..f5f96d1f1f658
+--- /dev/null
++++ b/advanced_example/product/product_factory.cpp
+@@ -0,0 +1,6 @@
++#include "product_factory.h"
++#include "product.h"
++
++std::shared_ptr<IProduct> ProductFactory::createProduct(const std::string& name, double price) {
++    return std::make_shared<Product>(name, price);
++}
+diff --git a/advanced_example/product/product_factory.h b/advanced_example/product/product_factory.h
+new file mode 100644
+index 0000000000000..966b2648f3455
+--- /dev/null
++++ b/advanced_example/product/product_factory.h
+@@ -0,0 +1,9 @@
++#pragma once
++
++#include "../interfaces/product_interface.h"
++
++// 产品工厂实现
++class ProductFactory : public IProductFactory {
++public:
++    std::shared_ptr<IProduct> createProduct(const std::string& name, double price) override;
++};
+-- 
+2.43.0
+

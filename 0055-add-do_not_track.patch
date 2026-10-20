@@ -1,0 +1,190 @@
+From dc30100556a1956722a3e54991ae6e6f8039b87a Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Mon, 3 Nov 2025 14:34:35 +0800
+Subject: [PATCH 55/68] add do_not_track
+
+---
+ a_tools/BUILD.gn                              |  2 ++
+ a_tools/fingerprint/controller.cc             |  3 +-
+ a_tools/fingerprint/controller.h              |  3 ++
+ .../fingerprint/do_not_track/do_not_track.cc  | 32 +++++++++++++++++++
+ .../fingerprint/do_not_track/do_not_track.h   | 20 ++++++++++++
+ .../tracking_protection_settings.cc           | 11 +++++++
+ config.json                                   |  8 ++++-
+ 7 files changed, 77 insertions(+), 2 deletions(-)
+ create mode 100644 a_tools/fingerprint/do_not_track/do_not_track.cc
+ create mode 100644 a_tools/fingerprint/do_not_track/do_not_track.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index 66caec8496ef9..d4544d3df519d 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -49,6 +49,8 @@ source_set("a_tools") {
+     "fingerprint/webaudio/webaudio.cc",
+     "fingerprint/navigator/navigator.h",
+     "fingerprint/navigator/navigator.cc",
++    "fingerprint/do_not_track/do_not_track.h",
++    "fingerprint/do_not_track/do_not_track.cc",
+   ]
+   deps = [
+     "//base/allocator/partition_allocator:raw_ptr",
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index 3f6a4122a2af2..f3131f76dbf6d 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -24,7 +24,8 @@ Controller::Controller()
+     m_window_screen(m_json_value),
+     m_touch(m_json_value),
+     m_webaudio(m_json_value),
+-    m_navigator(m_json_value)
++    m_navigator(m_json_value),
++    m_do_not_track(m_json_value)
+ {}
+ 
+ Controller::~Controller() = default;
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index 9d9670008399c..f6e505b1fe148 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -22,6 +22,7 @@
+ #include "./touch/touch.h"
+ #include "./webaudio/webaudio.h"
+ #include "./navigator/navigator.h"
++#include "./do_not_track/do_not_track.h"
+ 
+ namespace fingerprint {
+ 
+@@ -49,6 +50,7 @@ public:
+   Touch& GetTouch() { return m_touch; }
+   WebAudio& GetWebAudio() { return m_webaudio; }
+   Navigator& GetNavigator() { return m_navigator; }
++  DoNotTrack& GetDoNotTrack() { return m_do_not_track; }
+ 
+ private:
+   Controller();
+@@ -73,6 +75,7 @@ private:
+   Touch m_touch;
+   WebAudio m_webaudio;
+   Navigator m_navigator;
++  DoNotTrack m_do_not_track;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/do_not_track/do_not_track.cc b/a_tools/fingerprint/do_not_track/do_not_track.cc
+new file mode 100644
+index 0000000000000..8a57b4cbb7b99
+--- /dev/null
++++ b/a_tools/fingerprint/do_not_track/do_not_track.cc
+@@ -0,0 +1,32 @@
++#include "./do_not_track.h"
++#include "../utils/random.h"
++#include "../utils/parse_json.h"
++#include <cstdint>
++#include <iostream>
++
++namespace fingerprint {
++
++DoNotTrack::DoNotTrack(const absl::optional<base::Value> &json_value) {
++  ParseJson(json_value);
++}
++
++DoNotTrack::~DoNotTrack() = default;
++
++bool DoNotTrack::ParseJson(const absl::optional<base::Value> &json_value) {
++  if (!json_value) return false;
++  if (const base::DictValue* dict = FindDict(json_value.value(), "do_not_track"); dict) {
++    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
++      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        FindBool(params_dict, "do_not_track", m_do_not_track);
++      }
++    }
++    return true;
++  }
++  return false;
++}
++
++bool DoNotTrack::GetDoNotTrack() {
++  return m_do_not_track;
++}
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/do_not_track/do_not_track.h b/a_tools/fingerprint/do_not_track/do_not_track.h
+new file mode 100644
+index 0000000000000..480d01ee25799
+--- /dev/null
++++ b/a_tools/fingerprint/do_not_track/do_not_track.h
+@@ -0,0 +1,20 @@
++# pragma once
++
++#include "../base_fingerprint.h"
++#include "base/values.h"
++#include "base/base_export.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++
++namespace fingerprint {
++
++FINGERPRINT_CLASS_DECLARE(DoNotTrack);
++
++public:
++  BASE_EXPORT bool GetDoNotTrack();
++
++private:
++  bool m_do_not_track{false};
++
++FINGERPRINT_CLASS_END();
++
++} // namespace fingerprint
+diff --git a/components/privacy_sandbox/tracking_protection_settings.cc b/components/privacy_sandbox/tracking_protection_settings.cc
+index a416399d9e371..710752767bc52 100644
+--- a/components/privacy_sandbox/tracking_protection_settings.cc
++++ b/components/privacy_sandbox/tracking_protection_settings.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #include "components/privacy_sandbox/tracking_protection_settings.h"
+ 
+ #include "base/check.h"
+@@ -113,6 +117,13 @@ bool TrackingProtectionSettings::IsFpProtectionEnabled() const {
+ }
+ 
+ bool TrackingProtectionSettings::IsDoNotTrackEnabled() const {
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto &do_not_track = fingerprint::Controller::GetInstance().GetDoNotTrack(); do_not_track.Enabled()) {
++    return do_not_track.GetDoNotTrack();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return pref_service_->GetBoolean(prefs::kEnableDoNotTrack);
+ }
+ 
+diff --git a/config.json b/config.json
+index 6a819bbf1ec6c..5af5f76ded708 100644
+--- a/config.json
++++ b/config.json
+@@ -185,10 +185,16 @@
+     }
+   },
+   "timezone": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "linux": true,
+       "windows": false
+     }
++  },
++  "do_not_track": {
++    "enabled": true,
++    "params": {
++      "do_not_track": true
++    }
+   }
+ }
+-- 
+2.43.0
+

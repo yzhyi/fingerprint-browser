@@ -1,0 +1,73 @@
+From 9ea75658dfd33c31320c6c92d39c6124796e585a Mon Sep 17 00:00:00 2001
+From: yuzhengyi02 <yuzhengyi02@meituan.com>
+Date: Wed, 3 Sep 2025 21:02:55 +0800
+Subject: [PATCH 02/68] Canvas: setWidth and setHeight
+
+---
+ .../core/html/canvas/html_canvas_element.cc   | 36 +++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+
+diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+index d36b4be757121..a3c201d061eec 100644
+--- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
++++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+@@ -25,6 +25,14 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++// Yzhyi start
++#include "base/command_line.h"
++#include "third_party/blink/public/common/switches.h"
++#include "base/json/json_reader.h"
++#include "base/values.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++// Yzhyi end
++
+ #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
+ 
+ #include <math.h>
+@@ -530,6 +538,20 @@ bool HTMLCanvasElement::SizeChangesAreAllowed(ExceptionState& exception_state) {
+ void HTMLCanvasElement::setHeight(unsigned value,
+                                   ExceptionState& exception_state) {
+   if (SizeChangesAreAllowed(exception_state)) {
++    // Yzhyi start
++    const base::CommandLine *yzhyi_command_line =
++      base::CommandLine::ForCurrentProcess();
++    if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
++      std::string yzhyi_command_str = yzhyi_command_line->
++        GetSwitchValueASCII(switches::kYzhyi);
++      absl::optional<base::Value> yzhyi_command_value =
++        base::JSONReader::Read(yzhyi_command_str);
++      std::optional<double> canvas_height = yzhyi_command_value->GetDict().FindDouble("canvas_height");
++      if (canvas_height.has_value()) {
++        value += canvas_height.value();
++      }
++    }
++    // Yzhyi end
+     SetUnsignedIntegralAttribute(html_names::kHeightAttr, value,
+                                  kDefaultCanvasHeight);
+   }
+@@ -538,6 +560,20 @@ void HTMLCanvasElement::setHeight(unsigned value,
+ void HTMLCanvasElement::setWidth(unsigned value,
+                                  ExceptionState& exception_state) {
+   if (SizeChangesAreAllowed(exception_state)) {
++    // Yzhyi start
++    const base::CommandLine *yzhyi_command_line =
++      base::CommandLine::ForCurrentProcess();
++    if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
++      std::string yzhyi_command_str = yzhyi_command_line->
++        GetSwitchValueASCII(switches::kYzhyi);
++      absl::optional<base::Value> yzhyi_command_value =
++        base::JSONReader::Read(yzhyi_command_str);
++      std::optional<double> canvas_width = yzhyi_command_value->GetDict().FindDouble("canvas_width");
++      if (canvas_width.has_value()) {
++        value += canvas_width.value();
++      }
++    }
++    // Yzhyi end
+     SetUnsignedIntegralAttribute(html_names::kWidthAttr, value,
+                                  kDefaultCanvasWidth);
+   }
+-- 
+2.43.0
+

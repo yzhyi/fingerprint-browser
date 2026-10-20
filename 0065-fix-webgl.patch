@@ -1,0 +1,1023 @@
+From 5c24f446ab1ccf124a24b0b5ae889b7db48bcbe4 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Fri, 26 Dec 2025 19:49:31 +0800
+Subject: [PATCH 65/68] fix webgl
+
+---
+ a_tools/fingerprint/utils/parse_json.cc       |   4 +
+ a_tools/fingerprint/utils/parse_json.h        |   2 +
+ a_tools/fingerprint/webgl/webgl.cc            | 286 +++++++++++++++++-
+ a_tools/fingerprint/webgl/webgl.h             | 121 +++++++-
+ config.json                                   |  55 +++-
+ .../client/gles2_implementation.cc            |  17 +-
+ .../webgl/webgl2_rendering_context_base.cc    |  47 ++-
+ .../webgl/webgl_rendering_context_base.cc     | 276 +++++++++--------
+ 8 files changed, 649 insertions(+), 159 deletions(-)
+
+diff --git a/a_tools/fingerprint/utils/parse_json.cc b/a_tools/fingerprint/utils/parse_json.cc
+index 56486f8ed646f..a8734a88b6018 100644
+--- a/a_tools/fingerprint/utils/parse_json.cc
++++ b/a_tools/fingerprint/utils/parse_json.cc
+@@ -32,6 +32,10 @@ bool FindDouble(const base::DictValue *json_dict, std::string_view key, double &
+   return false;
+ }
+ 
++std::optional<double> FindDouble(const base::DictValue *json_dict, std::string_view key) {
++  return json_dict->FindDouble(key);
++}
++
+ bool FindString(const base::DictValue *json_dict, std::string_view key, std::string &value) {
+   const std::string* key_value = json_dict->FindString(key);
+   if (key_value) {
+diff --git a/a_tools/fingerprint/utils/parse_json.h b/a_tools/fingerprint/utils/parse_json.h
+index 83962363dadb0..c4eabab4fc648 100644
+--- a/a_tools/fingerprint/utils/parse_json.h
++++ b/a_tools/fingerprint/utils/parse_json.h
+@@ -1,5 +1,6 @@
+ # pragma once
+ 
++#include <optional>
+ #include "base/values.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+@@ -10,6 +11,7 @@ const base::DictValue* FindDict(const base::DictValue *json_dict, std::string_vi
+ const base::ListValue* FindList(const base::DictValue *json_dict, std::string_view key);
+ bool FindBool(const base::DictValue *json_dict, std::string_view key, bool &value);
+ bool FindDouble(const base::DictValue *json_dict, std::string_view key, double &value);
++std::optional<double> FindDouble(const base::DictValue *json_dict, std::string_view key);
+ bool FindString(const base::DictValue *json_dict, std::string_view key, std::string &value);
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/webgl/webgl.cc b/a_tools/fingerprint/webgl/webgl.cc
+index 40fa70186990a..3dfe6a6d4671a 100644
+--- a/a_tools/fingerprint/webgl/webgl.cc
++++ b/a_tools/fingerprint/webgl/webgl.cc
+@@ -1,3 +1,4 @@
++#include <optional>
+ #include <random>
+ 
+ #include "./webgl.h"
+@@ -16,8 +17,76 @@ bool WebGL::ParseJson(const absl::optional<base::Value> &json_value) {
+   if (const base::DictValue* dict = FindDict(json_value.value(), "webgl"); dict) {
+     if (FindBool(dict, "enabled", m_enabled); m_enabled) {
+       if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
+-        FindString(params_dict, "unmasked_vendor_webgl", m_unmasked_vendor_webgl);
+-        FindString(params_dict, "unmasked_renderer_webgl", m_unmasked_renderer_webgl);
++        if (const base::DictValue* params_params_dict = FindDict(params_dict, "params"); params_params_dict) {
++          FindString(params_params_dict, "unmasked_vendor_webgl", m_unmasked_vendor_webgl);
++          FindString(params_params_dict, "unmasked_renderer_webgl", m_unmasked_renderer_webgl);
++          if (const base::ListValue* aliased_line_width_range_list = FindList(params_params_dict, "aliased_line_width_range"); aliased_line_width_range_list) {
++            for (auto& value : *aliased_line_width_range_list) {
++              m_aliased_line_width_range.push_back(value.GetDouble());
++            }
++          }
++          if (const base::ListValue* aliased_point_size_range_list = FindList(params_params_dict, "aliased_point_size_range"); aliased_point_size_range_list) {
++            for (auto& value : *aliased_point_size_range_list) {
++              m_aliased_point_size_range.push_back(value.GetDouble());
++            }
++          }
++
++          m_max_3d_texture_size = FindDouble(params_params_dict, "max_3d_texture_size");
++          m_max_array_texture_layers = FindDouble(params_params_dict, "max_array_texture_layers");
++          m_max_color_attachments = FindDouble(params_params_dict, "max_color_attachments");
++          m_max_combined_texture_image_units = FindDouble(params_params_dict, "max_combined_texture_image_units");
++          m_max_combined_uniform_blocks = FindDouble(params_params_dict, "max_combined_uniform_blocks");
++          m_max_cube_map_texture_size = FindDouble(params_params_dict, "max_cube_map_texture_size");
++          m_max_draw_buffers = FindDouble(params_params_dict, "max_draw_buffers");
++          m_max_elements_indices = FindDouble(params_params_dict, "max_elements_indices");
++          m_max_elements_vertices = FindDouble(params_params_dict, "max_elements_vertices");
++          m_max_fragment_input_components = FindDouble(params_params_dict, "max_fragment_input_components");
++          m_max_fragment_uniform_blocks = FindDouble(params_params_dict, "max_fragment_uniform_blocks");
++          m_max_fragment_uniform_components = FindDouble(params_params_dict, "max_fragment_uniform_components");
++          m_max_fragment_uniform_vectors = FindDouble(params_params_dict, "max_fragment_uniform_vectors");
++          m_max_program_texel_offset = FindDouble(params_params_dict, "max_program_texel_offset");
++          m_max_renderbuffer_size = FindDouble(params_params_dict, "max_renderbuffer_size");
++          m_max_samples = FindDouble(params_params_dict, "max_samples");
++          m_max_texture_image_units = FindDouble(params_params_dict, "max_texture_image_units");
++          m_max_texture_size = FindDouble(params_params_dict, "max_texture_size");
++          m_max_transform_feedback_interleaved_components = FindDouble(params_params_dict, "max_transform_feedback_interleaved_components");
++          m_max_transform_feedback_separate_attribs = FindDouble(params_params_dict, "max_transform_feedback_separate_attribs");
++          m_max_transform_feedback_separate_components = FindDouble(params_params_dict, "max_transform_feedback_separate_components");
++          m_max_uniform_buffer_bindings = FindDouble(params_params_dict, "max_uniform_buffer_bindings");
++          m_max_varying_components = FindDouble(params_params_dict, "max_varying_components");
++          m_max_varying_vectors = FindDouble(params_params_dict, "max_varying_vectors");
++          m_max_vertex_attribs = FindDouble(params_params_dict, "max_vertex_attribs");
++          m_max_vertex_output_components = FindDouble(params_params_dict, "max_vertex_output_components");
++          m_max_vertex_texture_image_units = FindDouble(params_params_dict, "max_vertex_texture_image_units");
++          m_max_vertex_uniform_blocks = FindDouble(params_params_dict, "max_vertex_uniform_blocks");
++          m_max_vertex_uniform_components = FindDouble(params_params_dict, "max_vertex_uniform_components");
++          m_max_vertex_uniform_vectors = FindDouble(params_params_dict, "max_vertex_uniform_vectors");
++          m_subpixel_bits = FindDouble(params_params_dict, "subpixel_bits");
++
++          m_max_client_wait_timeout_webgl = FindDouble(params_params_dict, "max_client_wait_timeout_webgl");
++
++          m_max_combined_fragment_uniform_components = FindDouble(params_params_dict, "max_combined_fragment_uniform_components");
++          m_max_combined_vertex_uniform_components = FindDouble(params_params_dict, "max_combined_vertex_uniform_components");
++          m_max_element_index = FindDouble(params_params_dict, "max_element_index");
++          m_max_server_wait_timeout = FindDouble(params_params_dict, "max_server_wait_timeout");
++          m_max_uniform_block_size = FindDouble(params_params_dict, "max_uniform_block_size");
++
++          m_max_draw_buffers_webgl = FindDouble(params_params_dict, "max_draw_buffers_webgl");
++          
++          m_max_texture_lod_bias = FindDouble(params_params_dict, "max_texture_lod_bias");
++          m_max_texture_max_anisotropy_ext = FindDouble(params_params_dict, "max_texture_max_anisotropy_ext");
++
++          if (const base::ListValue* max_viewport_dims_list = FindList(params_params_dict, "max_viewport_dims"); max_viewport_dims_list) {
++            for (auto& value : *max_viewport_dims_list) {
++              m_max_viewport_dims.push_back(value.GetDouble());
++            }
++          }
++
++          m_stencil_back_value_mask = FindDouble(params_params_dict, "stencil_back_value_mask");
++          m_stencil_back_writemask = FindDouble(params_params_dict, "stencil_back_writemask");
++          m_stencil_value_mask = FindDouble(params_params_dict, "stencil_value_mask");
++          m_stencil_writemask = FindDouble(params_params_dict, "stencil_writemask");
++        }
+         if (const base::DictValue* extensions_dict = FindDict(params_dict, "extensions"); extensions_dict) {
+           if (const base::ListValue* add_list = FindList(extensions_dict, "add"); add_list) {
+             for (auto& value : *add_list) {
+@@ -43,18 +112,215 @@ bool WebGL::ParseJson(const absl::optional<base::Value> &json_value) {
+   return false;
+ }
+ 
+-std::string WebGL::GetUnmaskedVendorWebgl() {
+-  if (m_enabled) {
+-    return m_unmasked_vendor_webgl;
++std::optional<std::string> WebGL::GetUnmaskedVendorWebgl() {
++  if (!m_unmasked_vendor_webgl.empty()) {
++    return std::optional{m_unmasked_vendor_webgl};
+   }
+-  return "";
++  return std::nullopt;
+ }
+ 
+-std::string WebGL::GetUnmaskedRendererWebgl() {
+-  if (m_enabled) {
+-    return m_unmasked_renderer_webgl;
++std::optional<std::string> WebGL::GetUnmaskedRendererWebgl() {
++  if (!m_unmasked_renderer_webgl.empty()) {
++    return std::optional{m_unmasked_renderer_webgl};
++  }
++  return std::nullopt;
++}
++
++std::optional<std::vector<double>> WebGL::GetAliasedLineWidthRange() {
++  if (!m_aliased_line_width_range.empty()) {
++    return std::optional{m_aliased_line_width_range};
++  }
++  return std::nullopt;
++}
++
++std::optional<std::vector<double>> WebGL::GetAliasedPointSizeRange() {
++  if (!m_aliased_point_size_range.empty()) {
++    return std::optional{m_aliased_point_size_range};
++  }
++  return std::nullopt;
++}
++
++std::optional<double> WebGL::GetMax3dTextureSize() {
++  return m_max_3d_texture_size;
++}
++
++std::optional<double> WebGL::GetMaxArrayTextureLayers() {
++  return m_max_array_texture_layers;
++}
++
++std::optional<double> WebGL::GetMaxColorAttachments() {
++  return m_max_color_attachments;
++}
++
++std::optional<double> WebGL::GetMaxCombinedTextureImageUnits() {
++  return m_max_combined_texture_image_units;
++}
++
++std::optional<double> WebGL::GetMaxCombinedUniformBlocks() {
++  return m_max_combined_uniform_blocks;
++}
++
++std::optional<double> WebGL::GetMaxCubeMapTextureSize() {
++  return m_max_cube_map_texture_size;
++}
++
++std::optional<double> WebGL::GetMaxDrawBuffers() {
++  return m_max_draw_buffers;
++}
++
++std::optional<double> WebGL::GetMaxElementsIndices() {
++  return m_max_elements_indices;
++}
++
++std::optional<double> WebGL::GetMaxElementsVertices() {
++  return m_max_elements_vertices;
++}
++
++std::optional<double> WebGL::GetMaxFragmentInputComponents() {
++  return m_max_fragment_input_components;
++}
++
++std::optional<double> WebGL::GetMaxFragmentUniformBlocks() {
++  return m_max_fragment_uniform_blocks;
++}
++
++std::optional<double> WebGL::GetMaxFragmentUniformComponents() {
++  return m_max_fragment_uniform_components;
++}
++
++std::optional<double> WebGL::GetMaxFragmentUniformVectors() {
++  return m_max_fragment_uniform_vectors;
++}
++
++std::optional<double> WebGL::GetMaxProgramTexelOffset() {
++  return m_max_program_texel_offset;
++}
++
++std::optional<double> WebGL::GetMaxRenderbufferSize() {
++  return m_max_renderbuffer_size;
++}
++
++std::optional<double> WebGL::GetMaxSamples() {
++  return m_max_samples;
++}
++
++std::optional<double> WebGL::GetMaxTextureImageUnits() {
++  return m_max_texture_image_units;
++}
++
++std::optional<double> WebGL::GetMaxTextureSize() {
++  return m_max_texture_size;
++}
++
++std::optional<double> WebGL::GetMaxTransformFeedbackInterleavedComponents() {
++  return m_max_transform_feedback_interleaved_components;
++}
++
++std::optional<double> WebGL::GetMaxTransformFeedbackSeparateAttribs() {
++  return m_max_transform_feedback_separate_attribs;
++}
++
++std::optional<double> WebGL::GetMaxTransformFeedbackSeparateComponents() {
++  return m_max_transform_feedback_separate_components;
++}
++
++std::optional<double> WebGL::GetMaxUniformBufferBindings() {
++  return m_max_uniform_buffer_bindings;
++}
++
++std::optional<double> WebGL::GetMaxVaryingComponents() {
++  return m_max_varying_components;
++}
++
++std::optional<double> WebGL::GetMaxVaryingVectors() {
++  return m_max_varying_vectors;
++}
++
++std::optional<double> WebGL::GetMaxVertexAttribs() {
++  return m_max_vertex_attribs;
++}
++
++std::optional<double> WebGL::GetMaxVertexOutputComponents() {
++  return m_max_vertex_output_components;
++}
++
++std::optional<double> WebGL::GetMaxVertexTextureImageUnits() {
++  return m_max_vertex_texture_image_units;
++}
++
++std::optional<double> WebGL::GetMaxVertexUniformBlocks() {
++  return m_max_vertex_uniform_blocks;
++}
++
++std::optional<double> WebGL::GetMaxVertexUniformComponents() {
++  return m_max_vertex_uniform_components;
++}
++
++std::optional<double> WebGL::GetMaxVertexUniformVectors() {
++  return m_max_vertex_uniform_vectors;
++}
++
++std::optional<double> WebGL::GetSubpixelBits() {
++  return m_subpixel_bits;
++}
++
++std::optional<double> WebGL::GetMaxClientWaitTimeoutWebgl() {
++  return m_max_client_wait_timeout_webgl;
++}
++
++std::optional<double> WebGL::GetMaxCombinedFragmentUniformComponents() {
++  return m_max_combined_fragment_uniform_components;
++}
++
++std::optional<double> WebGL::GetMaxCombinedVertexUniformComponents() {
++  return m_max_combined_vertex_uniform_components;
++}
++
++std::optional<double> WebGL::GetMaxElementIndex() {
++  return m_max_element_index;
++}
++
++std::optional<double> WebGL::GetMaxServerWaitTimeout() {
++  return m_max_server_wait_timeout;
++}
++
++std::optional<double> WebGL::GetMaxUniformBlockSize() {
++  return m_max_uniform_block_size;
++}
++
++std::optional<double> WebGL::GetMaxDrawBuffersWebgl() {
++  return m_max_draw_buffers_webgl;
++}
++
++std::optional<double> WebGL::GetMaxTextureLodBias() {
++  return m_max_texture_lod_bias;
++}
++
++std::optional<double> WebGL::GetMaxTextureMaxAnisotropyExt() {
++  return m_max_texture_max_anisotropy_ext;
++}
++
++std::optional<std::vector<double>> WebGL::GetMaxViewportDims() {
++  if (!m_max_viewport_dims.empty()) {
++    return std::optional{m_max_viewport_dims};
+   }
+-  return "";
++  return std::nullopt;
++}
++
++std::optional<double> WebGL::GetStencilBackValueMask() {
++  return m_stencil_back_value_mask;
++}
++
++std::optional<double> WebGL::GetStencilBackWritemask() {
++  return m_stencil_back_writemask;
++}
++
++std::optional<double> WebGL::GetStencilValueMask() {
++  return m_stencil_value_mask;
++}
++
++std::optional<double> WebGL::GetStencilWritemask() {
++  return m_stencil_writemask;
+ }
+ 
+ void WebGL::ModifyPixelsX(int &value) {
+diff --git a/a_tools/fingerprint/webgl/webgl.h b/a_tools/fingerprint/webgl/webgl.h
+index 4a3a0cd46e950..e8442f3804f4f 100644
+--- a/a_tools/fingerprint/webgl/webgl.h
++++ b/a_tools/fingerprint/webgl/webgl.h
+@@ -1,5 +1,6 @@
+ # pragma once
+ 
++#include <optional>
+ #include <vector>
+ #include <unordered_set>
+ 
+@@ -13,22 +14,136 @@ namespace fingerprint {
+ FINGERPRINT_CLASS_DECLARE(WebGL);
+ 
+ public:
+-  BASE_EXPORT std::string GetUnmaskedVendorWebgl();
+-  BASE_EXPORT std::string GetUnmaskedRendererWebgl();
++  BASE_EXPORT std::optional<std::string> GetUnmaskedVendorWebgl();
++  BASE_EXPORT std::optional<std::string> GetUnmaskedRendererWebgl();
++  // WebGLRenderingContextBase::GetWebGLFloatArrayParameter
++  BASE_EXPORT std::optional<std::vector<double>> GetAliasedLineWidthRange();
++  BASE_EXPORT std::optional<std::vector<double>> GetAliasedPointSizeRange();
++  // WebGLRenderingContextBase::GetIntParameter
++  BASE_EXPORT std::optional<double> GetMax3dTextureSize();
++  BASE_EXPORT std::optional<double> GetMaxArrayTextureLayers();
++  BASE_EXPORT std::optional<double> GetMaxColorAttachments();
++  BASE_EXPORT std::optional<double> GetMaxCombinedTextureImageUnits();
++  BASE_EXPORT std::optional<double> GetMaxCombinedUniformBlocks();
++  BASE_EXPORT std::optional<double> GetMaxCubeMapTextureSize();
++  BASE_EXPORT std::optional<double> GetMaxDrawBuffers();
++  BASE_EXPORT std::optional<double> GetMaxElementsIndices();
++  BASE_EXPORT std::optional<double> GetMaxElementsVertices();
++  BASE_EXPORT std::optional<double> GetMaxFragmentInputComponents();
++  BASE_EXPORT std::optional<double> GetMaxFragmentUniformBlocks();
++  BASE_EXPORT std::optional<double> GetMaxFragmentUniformComponents();
++  BASE_EXPORT std::optional<double> GetMaxFragmentUniformVectors();
++  BASE_EXPORT std::optional<double> GetMaxProgramTexelOffset();
++  BASE_EXPORT std::optional<double> GetMaxRenderbufferSize();
++  BASE_EXPORT std::optional<double> GetMaxSamples();
++  BASE_EXPORT std::optional<double> GetMaxTextureImageUnits();
++  BASE_EXPORT std::optional<double> GetMaxTextureSize();
++  BASE_EXPORT std::optional<double> GetMaxTransformFeedbackInterleavedComponents();
++  BASE_EXPORT std::optional<double> GetMaxTransformFeedbackSeparateAttribs();
++  BASE_EXPORT std::optional<double> GetMaxTransformFeedbackSeparateComponents();
++  BASE_EXPORT std::optional<double> GetMaxUniformBufferBindings();
++  BASE_EXPORT std::optional<double> GetMaxVaryingComponents();
++  BASE_EXPORT std::optional<double> GetMaxVaryingVectors();
++  BASE_EXPORT std::optional<double> GetMaxVertexAttribs();
++  BASE_EXPORT std::optional<double> GetMaxVertexOutputComponents();
++  BASE_EXPORT std::optional<double> GetMaxVertexTextureImageUnits();
++  BASE_EXPORT std::optional<double> GetMaxVertexUniformBlocks();
++  BASE_EXPORT std::optional<double> GetMaxVertexUniformComponents();
++  BASE_EXPORT std::optional<double> GetMaxVertexUniformVectors();
++  BASE_EXPORT std::optional<double> GetSubpixelBits();
++  // WebGL2RenderingContextBase::getParameter
++  BASE_EXPORT std::optional<double> GetMaxClientWaitTimeoutWebgl();
++  // WebGL2RenderingContextBase::GetInt64Parameter
++  BASE_EXPORT std::optional<double> GetMaxCombinedFragmentUniformComponents();
++  BASE_EXPORT std::optional<double> GetMaxCombinedVertexUniformComponents();
++  BASE_EXPORT std::optional<double> GetMaxElementIndex();
++  BASE_EXPORT std::optional<double> GetMaxServerWaitTimeout();
++  BASE_EXPORT std::optional<double> GetMaxUniformBlockSize();
++  // WebGLRenderingContextBase::getParameter
++  BASE_EXPORT std::optional<double> GetMaxDrawBuffersWebgl();
++  // WebGLRenderingContextBase::GetFloatParameter
++  BASE_EXPORT std::optional<double> GetMaxTextureLodBias();
++  BASE_EXPORT std::optional<double> GetMaxTextureMaxAnisotropyExt();
++  // WebGLRenderingContextBase::GetWebGLIntArrayParameter
++  BASE_EXPORT std::optional<std::vector<double>> GetMaxViewportDims();
++  // WebGLRenderingContextBase::GetUnsignedIntParameter
++  BASE_EXPORT std::optional<double> GetStencilBackValueMask();
++  BASE_EXPORT std::optional<double> GetStencilBackWritemask();
++  BASE_EXPORT std::optional<double> GetStencilValueMask();
++  BASE_EXPORT std::optional<double> GetStencilWritemask();
++
+   BASE_EXPORT void ModifyPixelsX(int &value);
+   BASE_EXPORT void ModifyPixelsY(int &value);
+   BASE_EXPORT void ModifyPixelsWidth(int &value);
+   BASE_EXPORT void ModifyPixelsHeight(int &value);
+   BASE_EXPORT void ModifyExtensions(std::unordered_set<std::string> &extensions);
+-  // TODO: yzhyi handle getParameter
+ 
+ private:
++  // params
+   std::string m_unmasked_vendor_webgl;
+   std::string m_unmasked_renderer_webgl;
++  
++  std::vector<double> m_aliased_line_width_range;
++  std::vector<double> m_aliased_point_size_range;
++
++  std::optional<double> m_max_3d_texture_size{std::nullopt};
++  std::optional<double> m_max_array_texture_layers{std::nullopt};
++  std::optional<double> m_max_color_attachments{std::nullopt};
++  std::optional<double> m_max_combined_texture_image_units{std::nullopt};
++  std::optional<double> m_max_combined_uniform_blocks{std::nullopt};
++  std::optional<double> m_max_cube_map_texture_size{std::nullopt};
++  std::optional<double> m_max_draw_buffers{std::nullopt};
++  std::optional<double> m_max_elements_indices{std::nullopt};
++  std::optional<double> m_max_elements_vertices{std::nullopt};
++  std::optional<double> m_max_fragment_input_components{std::nullopt};
++  std::optional<double> m_max_fragment_uniform_blocks{std::nullopt};
++  std::optional<double> m_max_fragment_uniform_components{std::nullopt};
++  std::optional<double> m_max_fragment_uniform_vectors{std::nullopt};
++  std::optional<double> m_max_program_texel_offset{std::nullopt};
++  std::optional<double> m_max_renderbuffer_size{std::nullopt};
++  std::optional<double> m_max_samples{std::nullopt};
++  std::optional<double> m_max_texture_image_units{std::nullopt};
++  std::optional<double> m_max_texture_size{std::nullopt};
++  std::optional<double> m_max_transform_feedback_interleaved_components{std::nullopt};
++  std::optional<double> m_max_transform_feedback_separate_attribs{std::nullopt};
++  std::optional<double> m_max_transform_feedback_separate_components{std::nullopt};
++  std::optional<double> m_max_uniform_buffer_bindings{std::nullopt};
++  std::optional<double> m_max_varying_components{std::nullopt};
++  std::optional<double> m_max_varying_vectors{std::nullopt};
++  std::optional<double> m_max_vertex_attribs{std::nullopt};
++  std::optional<double> m_max_vertex_output_components{std::nullopt};
++  std::optional<double> m_max_vertex_texture_image_units{std::nullopt};
++  std::optional<double> m_max_vertex_uniform_blocks{std::nullopt};
++  std::optional<double> m_max_vertex_uniform_components{std::nullopt};
++  std::optional<double> m_max_vertex_uniform_vectors{std::nullopt};
++  std::optional<double> m_subpixel_bits{std::nullopt};
++
++  std::optional<double> m_max_client_wait_timeout_webgl{std::nullopt};
++
++  std::optional<double> m_max_combined_fragment_uniform_components{std::nullopt};
++  std::optional<double> m_max_combined_vertex_uniform_components{std::nullopt};
++  std::optional<double> m_max_element_index{std::nullopt};
++  std::optional<double> m_max_server_wait_timeout{std::nullopt};
++  std::optional<double> m_max_uniform_block_size{std::nullopt};
++
++  std::optional<double> m_max_draw_buffers_webgl{std::nullopt};
++
++  std::optional<double> m_max_texture_lod_bias{std::nullopt};
++  std::optional<double> m_max_texture_max_anisotropy_ext{std::nullopt};
++
++  std::vector<double> m_max_viewport_dims;
++
++  std::optional<double> m_stencil_back_value_mask{std::nullopt};
++  std::optional<double> m_stencil_back_writemask{std::nullopt};
++  std::optional<double> m_stencil_value_mask{std::nullopt};
++  std::optional<double> m_stencil_writemask{std::nullopt};
++
++  // pixels
+   double m_pixels_x{0};
+   double m_pixels_y{0};
+   double m_pixels_width{0};
+   double m_pixels_height{0};
++  // extensions
+   std::vector<std::string> m_extensions_adds;
+   std::vector<std::string> m_extensions_subs;
+ 
+diff --git a/config.json b/config.json
+index 09027109a2db6..f91cf726654bf 100644
+--- a/config.json
++++ b/config.json
+@@ -14,10 +14,57 @@
+   "webgl": {
+     "enabled": true,
+     "params": {
+-      "#unmasked_vendor_webgl": "Google Inc. (Apple)",
+-      "#unmasked_renderer_webgl": "ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Pro, Unspecified Version)",
+-      "unmasked_vendor_webgl": "Google Inc. (NVIDIA)",
+-      "unmasked_renderer_webgl": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Ti Direct3D11 vs_5_0 ps_5_0, D3D11-31.0.15.3161)",
++      "params": {
++        "unmasked_vendor_webgl": "Google Inc. (NVIDIA)",
++        "unmasked_renderer_webgl": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Ti Direct3D11 vs_5_0 ps_5_0, D3D11-31.0.15.3161)",
++        "aliased_line_width_range": [1, 1],
++        "aliased_point_size_range": [1, 1024],
++        "max_3d_texture_size": 2048,
++        "max_array_texture_layers": 2048,
++        "max_color_attachments": 8,
++        "max_combined_texture_image_units": 32,
++        "max_combined_uniform_blocks": 24,
++        "max_cube_map_texture_size": 16384,
++        "max_draw_buffers": 8,
++        "max_elements_indices": 2147483647,
++        "max_elements_vertices": 2147483647,
++        "max_fragment_input_components": 120,
++        "max_fragment_uniform_blocks": 12,
++        "max_fragment_uniform_components": 4096,
++        "max_fragment_uniform_vectors": 1024,
++        "max_program_texel_offset": 7,
++        "max_renderbuffer_size": 16384,
++        "max_samples": 8,
++        "max_texture_image_units": 16,
++        "max_texture_size": 16384,
++        "max_transform_feedback_interleaved_components": 120,
++        "max_transform_feedback_separate_attribs": 4,
++        "max_transform_feedback_separate_components": 4,
++        "max_uniform_buffer_bindings": 24,
++        "max_varying_components": 120,
++        "max_varying_vectors": 30,
++        "max_vertex_attribs": 16,
++        "max_vertex_output_components": 120,
++        "max_vertex_texture_image_units": 16,
++        "max_vertex_uniform_blocks": 12,
++        "max_vertex_uniform_components": 16380,
++        "max_vertex_uniform_vectors": 4095,
++        "subpixel_bits": 4,
++        "max_client_wait_timeout_webgl": 0,
++        "max_combined_fragment_uniform_components": 200704,
++        "max_combined_vertex_uniform_components": 212988,
++        "max_element_index": 4294967294,
++        "max_server_wait_timeout": 0,
++        "max_uniform_block_size": 65536,
++        "max_draw_buffers_webgl": 8,
++        "max_texture_lod_bias": 2,
++        "max_texture_max_anisotropy_ext": 16,
++        "max_viewport_dims": [32767, 32767],
++        "stencil_back_value_mask": 2147483647,
++        "stencil_back_writemask": 2147483647,
++        "stencil_value_mask": 2147483647,
++        "stencil_writemask": 2147483647
++      },
+       "extensions": {
+         "add": [
+           "TEST"
+diff --git a/gpu/command_buffer/client/gles2_implementation.cc b/gpu/command_buffer/client/gles2_implementation.cc
+index 402b7f5e5f0ff..789490f6ad1f5 100644
+--- a/gpu/command_buffer/client/gles2_implementation.cc
++++ b/gpu/command_buffer/client/gles2_implementation.cc
+@@ -4489,14 +4489,15 @@ const GLubyte* GLES2Implementation::GetString(GLenum name) {
+   CheckGLError();
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (name == GL_VENDOR && !fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedVendorWebgl().empty()) {
+-    static std::string vendor_webgl = fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedVendorWebgl();
+-    result = reinterpret_cast<const GLubyte*>(vendor_webgl.c_str());
+-  }
+-
+-  if (name == GL_RENDERER && !fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedRendererWebgl().empty()) {
+-    static std::string renderer_webgl = fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedRendererWebgl();
+-    result = reinterpret_cast<const GLubyte*>(renderer_webgl.c_str());
++  if (fingerprint::Controller::GetInstance().GetWebGL().Enabled()) {
++    if (name == GL_VENDOR && fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedVendorWebgl().has_value()) {
++      static std::string vendor_webgl = fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedVendorWebgl().value();
++      result = reinterpret_cast<const GLubyte*>(vendor_webgl.c_str());
++    }
++    if (name == GL_RENDERER && fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedRendererWebgl().has_value()) {
++      static std::string renderer_webgl = fingerprint::Controller::GetInstance().GetWebGL().GetUnmaskedRendererWebgl().value();
++      result = reinterpret_cast<const GLubyte*>(renderer_webgl.c_str());
++    }
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+diff --git a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
+index c4729f4a0f1b7..7a3158fc2e04e 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #include "third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.h"
+ 
+ #include <memory>
+@@ -4824,8 +4828,14 @@ ScriptValue WebGL2RenderingContextBase::getParameter(ScriptState* script_state,
+     case GL_MAX_ARRAY_TEXTURE_LAYERS:
+       return GetIntParameter(script_state, pname);
+     case GC3D_MAX_CLIENT_WAIT_TIMEOUT_WEBGL:
+-      // return WebGLAny(script_state, kMaxClientWaitTimeout);
+-      return WebGLAny(script_state, 0);
++
++      #ifdef ENABLE_FINGERPRINT
++      if (fingerprint::Controller::GetInstance().GetWebGL().Enabled() && fingerprint::Controller::GetInstance().GetWebGL().GetMaxClientWaitTimeoutWebgl().has_value()) {
++        return WebGLAny(script_state, static_cast<uint64_t>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxClientWaitTimeoutWebgl().value()));
++      }
++      #endif // ENABLE_FINGERPRINT
++
++      return WebGLAny(script_state, kMaxClientWaitTimeout);
+     case GL_MAX_COLOR_ATTACHMENTS:
+       return GetIntParameter(script_state, pname);
+     case GL_MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS:
+@@ -5018,21 +5028,26 @@ ScriptValue WebGL2RenderingContextBase::GetInt64Parameter(
+   GLint64 value = 0;
+   if (!isContextLost())
+     ContextGL()->GetInteger64v(pname, &value);
+-  if (pname == GL_MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS) {
+-    return WebGLAny(script_state, 200704);
+-  }
+-  if (pname == GL_MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS) {
+-    return WebGLAny(script_state, 212988);
+-  }
+-  if (pname == GL_MAX_ELEMENT_INDEX) {
+-    return WebGLAny(script_state, 4294967294);
+-  }
+-  if (pname == GL_MAX_SERVER_WAIT_TIMEOUT) {
+-    return WebGLAny(script_state, 0);
+-  }
+-  if (pname == GL_MAX_UNIFORM_BLOCK_SIZE) {
+-    return WebGLAny(script_state, 65536);
++
++  #ifdef ENABLE_FINGERPRINT
++  if (fingerprint::Controller::GetInstance().GetWebGL().Enabled()) {
++    if (pname == GL_MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxCombinedFragmentUniformComponents().has_value()) {
++      return WebGLAny(script_state, static_cast<int64_t>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxCombinedFragmentUniformComponents().value()));
++    }
++    if (pname == GL_MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxCombinedVertexUniformComponents().has_value()) {
++      return WebGLAny(script_state, static_cast<int64_t>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxCombinedVertexUniformComponents().value()));
++    }
++    if (pname == GL_MAX_ELEMENT_INDEX && fingerprint::Controller::GetInstance().GetWebGL().GetMaxElementIndex().has_value()) {
++      return WebGLAny(script_state, static_cast<int64_t>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxElementIndex().value()));
++    }
++    if (pname == GL_MAX_SERVER_WAIT_TIMEOUT && fingerprint::Controller::GetInstance().GetWebGL().GetMaxServerWaitTimeout().has_value()) {
++      return WebGLAny(script_state, static_cast<int64_t>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxServerWaitTimeout().value()));
++    }
++    if (pname == GL_MAX_UNIFORM_BLOCK_SIZE && fingerprint::Controller::GetInstance().GetWebGL().GetMaxUniformBlockSize().has_value()) {
++      return WebGLAny(script_state, static_cast<int64_t>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxUniformBlockSize().value()));
++    }
+   }
++  #endif // ENABLE_FINGERPRINT
+ 
+   return WebGLAny(script_state, value);
+ }
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index 794d749635745..b325de8c46543 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -4149,9 +4149,16 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+           "invalid parameter name, WEBGL_draw_buffers not enabled");
+       return ScriptValue::CreateNull(script_state->GetIsolate());
+     case GL_MAX_DRAW_BUFFERS_EXT:
+-      if (ExtensionEnabled(kWebGLDrawBuffersName) || IsWebGL2())
+-        // return WebGLAny(script_state, MaxDrawBuffers());
+-        return WebGLAny(script_state, 8);
++      if (ExtensionEnabled(kWebGLDrawBuffersName) || IsWebGL2()) {
++
++        #ifdef ENABLE_FINGERPRINT
++        if (fingerprint::Controller::GetInstance().GetWebGL().Enabled() && fingerprint::Controller::GetInstance().GetWebGL().GetMaxDrawBuffersWebgl().has_value()) {
++          return WebGLAny(script_state, static_cast<uint64_t>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxDrawBuffersWebgl().value()));
++        }
++        #endif // ENABLE_FINGERPRINT
++
++        return WebGLAny(script_state, MaxDrawBuffers());
++      }
+       SynthesizeGLError(
+           GL_INVALID_ENUM, "getParameter",
+           "invalid parameter name, WEBGL_draw_buffers not enabled");
+@@ -7721,12 +7728,17 @@ ScriptValue WebGLRenderingContextBase::GetFloatParameter(
+           blink::IdentifiableSurface::Type::kWebGLParameter)) {
+     RecordIdentifiableGLParameterDigest(pname, value);
+   }
+-  if (pname == GL_MAX_TEXTURE_LOD_BIAS) {
+-    return WebGLAny(script_state, 2);
+-  }
+-  if (pname == GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT) {
+-    return WebGLAny(script_state, 16);
++
++  #ifdef ENABLE_FINGERPRINT
++  if (fingerprint::Controller::GetInstance().GetWebGL().Enabled()) {
++    if (pname == GL_MAX_TEXTURE_LOD_BIAS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxTextureLodBias().has_value()) {
++      return WebGLAny(script_state, static_cast<float>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxTextureLodBias().value()));
++    }
++    if (pname == GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT && fingerprint::Controller::GetInstance().GetWebGL().GetMaxTextureMaxAnisotropyExt().has_value()) {
++      return WebGLAny(script_state, static_cast<float>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxTextureMaxAnisotropyExt().value()));
++    }
+   }
++  #endif // ENABLE_FINGERPRINT
+ 
+   return WebGLAny(script_state, value);
+ }
+@@ -7755,99 +7767,103 @@ ScriptValue WebGLRenderingContextBase::GetIntParameter(
+     RecordIdentifiableGLParameterDigest(pname, value);
+   }
+ 
+-  if (pname == GL_MAX_3D_TEXTURE_SIZE) {
+-    return WebGLAny(script_state, 2048);
+-  }
+-  if (pname == GL_MAX_ARRAY_TEXTURE_LAYERS) {
+-    return WebGLAny(script_state, 2048);
+-  }
+-  if (pname == GL_MAX_COLOR_ATTACHMENTS) {
+-    return WebGLAny(script_state, 8);
+-  }
+-  if (pname == GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS) {
+-    return WebGLAny(script_state, 32);
+-  }
+-  if (pname == GL_MAX_COMBINED_UNIFORM_BLOCKS) {
+-    return WebGLAny(script_state, 24);
+-  }
+-  if (pname == GL_MAX_CUBE_MAP_TEXTURE_SIZE) {
+-    return WebGLAny(script_state, 16384);
+-  }
+-  if (pname == GL_MAX_DRAW_BUFFERS) {
+-    return WebGLAny(script_state, 8);
+-  }
+-  if (pname == GL_MAX_ELEMENTS_INDICES) {
+-    return WebGLAny(script_state, 2147483647);
+-  }
+-  if (pname == GL_MAX_ELEMENTS_VERTICES) {
+-    return WebGLAny(script_state, 2147483647);
+-  }
+-  if (pname == GL_MAX_FRAGMENT_INPUT_COMPONENTS) {
+-    return WebGLAny(script_state, 120);
+-  }
+-  if (pname == GL_MAX_FRAGMENT_UNIFORM_BLOCKS) {
+-    return WebGLAny(script_state, 12);
+-  }
+-  if (pname == GL_MAX_FRAGMENT_UNIFORM_COMPONENTS) {
+-    return WebGLAny(script_state, 4096);
+-  }
+-  if (pname == GL_MAX_FRAGMENT_UNIFORM_VECTORS) {
+-    return WebGLAny(script_state, 1024);
+-  }
+-  if (pname == GL_MAX_PROGRAM_TEXEL_OFFSET) {
+-    return WebGLAny(script_state, 7);
+-  }
+-  if (pname == GL_MAX_RENDERBUFFER_SIZE) {
+-    return WebGLAny(script_state, 16384);
+-  }
+-  if (pname == GL_MAX_SAMPLES) {
+-    return WebGLAny(script_state, 8);
+-  }
+-  if (pname == GL_MAX_TEXTURE_IMAGE_UNITS) {
+-    return WebGLAny(script_state, 16);
+-  }
+-  if (pname == GL_MAX_TEXTURE_SIZE) {
+-    return WebGLAny(script_state, 16384);
+-  }
+-  if (pname == GL_MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS) {
+-    return WebGLAny(script_state, 120);
+-  }
+-  if (pname == GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS) {
+-    return WebGLAny(script_state, 4);
+-  }
+-  if (pname == GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS) {
+-    return WebGLAny(script_state, 4);
+-  }
+-  if (pname == GL_MAX_UNIFORM_BUFFER_BINDINGS) {
+-    return WebGLAny(script_state, 24);
+-  }
+-  if (pname == GL_MAX_VARYING_COMPONENTS) {
+-    return WebGLAny(script_state, 120);
+-  }
+-  if (pname == GL_MAX_VARYING_VECTORS) {
+-    return WebGLAny(script_state, 30);
+-  }
+-  if (pname == GL_MAX_VERTEX_ATTRIBS) {
+-    return WebGLAny(script_state, 16);
+-  }
+-  if (pname == GL_MAX_VERTEX_OUTPUT_COMPONENTS) {
+-    return WebGLAny(script_state, 120);
+-  }
+-  if (pname == GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS) {
+-    return WebGLAny(script_state, 16);
+-  }
+-  if (pname == GL_MAX_VERTEX_UNIFORM_BLOCKS) {
+-    return WebGLAny(script_state, 12);
+-  }
+-  if (pname == GL_MAX_VERTEX_UNIFORM_COMPONENTS) {
+-    return WebGLAny(script_state, 16380);
+-  }
+-  if (pname == GL_MAX_VERTEX_UNIFORM_VECTORS) {
+-    return WebGLAny(script_state, 4095);
+-  }
+-  if (pname == GL_SUBPIXEL_BITS) {
+-    return WebGLAny(script_state, 4);
++  #ifdef ENABLE_FINGERPRINT
++  if (fingerprint::Controller::GetInstance().GetWebGL().Enabled()) {
++    if (pname == GL_MAX_3D_TEXTURE_SIZE && fingerprint::Controller::GetInstance().GetWebGL().GetMax3dTextureSize().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMax3dTextureSize().value()));
++    }
++    if (pname == GL_MAX_ARRAY_TEXTURE_LAYERS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxArrayTextureLayers().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxArrayTextureLayers().value()));
++    }
++    if (pname == GL_MAX_COLOR_ATTACHMENTS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxColorAttachments().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxColorAttachments().value()));
++    }
++    if (pname == GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxCombinedTextureImageUnits().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxCombinedTextureImageUnits().value()));
++    }
++    if (pname == GL_MAX_COMBINED_UNIFORM_BLOCKS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxCombinedUniformBlocks().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxCombinedUniformBlocks().value()));
++    }
++    if (pname == GL_MAX_CUBE_MAP_TEXTURE_SIZE && fingerprint::Controller::GetInstance().GetWebGL().GetMaxCubeMapTextureSize().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxCubeMapTextureSize().value()));
++    }
++    if (pname == GL_MAX_DRAW_BUFFERS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxDrawBuffers().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxDrawBuffers().value()));
++    }
++    if (pname == GL_MAX_ELEMENTS_INDICES && fingerprint::Controller::GetInstance().GetWebGL().GetMaxElementsIndices().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxElementsIndices().value()));
++    }
++    if (pname == GL_MAX_ELEMENTS_VERTICES && fingerprint::Controller::GetInstance().GetWebGL().GetMaxElementsVertices().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxElementsVertices().value()));
++    }
++    if (pname == GL_MAX_FRAGMENT_INPUT_COMPONENTS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxFragmentInputComponents().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxFragmentInputComponents().value()));
++    }
++    if (pname == GL_MAX_FRAGMENT_UNIFORM_BLOCKS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxFragmentUniformBlocks().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxFragmentUniformBlocks().value()));
++    }
++    if (pname == GL_MAX_FRAGMENT_UNIFORM_COMPONENTS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxFragmentUniformComponents().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxFragmentUniformComponents().value()));
++    }
++    if (pname == GL_MAX_FRAGMENT_UNIFORM_VECTORS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxFragmentUniformVectors().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxFragmentUniformVectors().value()));
++    }
++    if (pname == GL_MAX_PROGRAM_TEXEL_OFFSET && fingerprint::Controller::GetInstance().GetWebGL().GetMaxProgramTexelOffset().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxProgramTexelOffset().value()));
++    }
++    if (pname == GL_MAX_RENDERBUFFER_SIZE && fingerprint::Controller::GetInstance().GetWebGL().GetMaxRenderbufferSize().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxRenderbufferSize().value()));
++    }
++    if (pname == GL_MAX_SAMPLES && fingerprint::Controller::GetInstance().GetWebGL().GetMaxSamples().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxSamples().value()));
++    }
++    if (pname == GL_MAX_TEXTURE_IMAGE_UNITS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxTextureImageUnits().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxTextureImageUnits().value()));
++    }
++    if (pname == GL_MAX_TEXTURE_SIZE && fingerprint::Controller::GetInstance().GetWebGL().GetMaxTextureSize().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxTextureSize().value()));
++    }
++    if (pname == GL_MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxTransformFeedbackInterleavedComponents().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxTransformFeedbackInterleavedComponents().value()));
++    }
++    if (pname == GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxTransformFeedbackSeparateAttribs().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxTransformFeedbackSeparateAttribs().value()));
++    }
++    if (pname == GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxTransformFeedbackSeparateComponents().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxTransformFeedbackSeparateComponents().value()));
++    }
++    if (pname == GL_MAX_UNIFORM_BUFFER_BINDINGS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxUniformBufferBindings().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxUniformBufferBindings().value()));
++    }
++    if (pname == GL_MAX_VARYING_COMPONENTS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxVaryingComponents().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxVaryingComponents().value()));
++    }
++    if (pname == GL_MAX_VARYING_VECTORS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxVaryingVectors().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxVaryingVectors().value()));
++    }
++    if (pname == GL_MAX_VERTEX_ATTRIBS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxVertexAttribs().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxVertexAttribs().value()));
++    }
++    if (pname == GL_MAX_VERTEX_OUTPUT_COMPONENTS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxVertexOutputComponents().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxVertexOutputComponents().value()));
++    }
++    if (pname == GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxVertexTextureImageUnits().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxVertexTextureImageUnits().value()));
++    }
++    if (pname == GL_MAX_VERTEX_UNIFORM_BLOCKS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxVertexUniformBlocks().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxVertexUniformBlocks().value()));
++    }
++    if (pname == GL_MAX_VERTEX_UNIFORM_COMPONENTS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxVertexUniformComponents().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxVertexUniformComponents().value()));
++    }
++    if (pname == GL_MAX_VERTEX_UNIFORM_VECTORS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxVertexUniformVectors().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetMaxVertexUniformVectors().value()));
++    }
++    if (pname == GL_SUBPIXEL_BITS && fingerprint::Controller::GetInstance().GetWebGL().GetSubpixelBits().has_value()) {
++      return WebGLAny(script_state, static_cast<int>(fingerprint::Controller::GetInstance().GetWebGL().GetSubpixelBits().value()));
++    }
+   }
++  #endif // ENABLE_FINGERPRINT
+ 
+   return WebGLAny(script_state, value);
+ }
+@@ -7867,18 +7883,23 @@ ScriptValue WebGLRenderingContextBase::GetUnsignedIntParameter(
+   GLint value = 0;
+   if (!isContextLost())
+     ContextGL()->GetIntegerv(pname, &value);
+-  if (pname == GL_STENCIL_BACK_VALUE_MASK) {
+-    return WebGLAny(script_state, static_cast<unsigned>(2147483647));
+-  }
+-  if (pname == GL_STENCIL_BACK_WRITEMASK) {
+-    return WebGLAny(script_state, static_cast<unsigned>(2147483647));
+-  }
+-  if (pname == GL_STENCIL_VALUE_MASK) {
+-    return WebGLAny(script_state, static_cast<unsigned>(2147483647));
+-  }
+-  if (pname == GL_STENCIL_WRITEMASK) {
+-    return WebGLAny(script_state, static_cast<unsigned>(2147483647));
++
++  #ifdef ENABLE_FINGERPRINT
++  if (fingerprint::Controller::GetInstance().GetWebGL().Enabled()) {
++    if (pname == GL_STENCIL_BACK_VALUE_MASK && fingerprint::Controller::GetInstance().GetWebGL().GetStencilBackValueMask().has_value()) {
++      return WebGLAny(script_state, static_cast<uint64_t>(fingerprint::Controller::GetInstance().GetWebGL().GetStencilBackValueMask().value()));
++    }
++    if (pname == GL_STENCIL_BACK_WRITEMASK && fingerprint::Controller::GetInstance().GetWebGL().GetStencilBackWritemask().has_value()) {
++      return WebGLAny(script_state, static_cast<uint64_t>(fingerprint::Controller::GetInstance().GetWebGL().GetStencilBackWritemask().value()));
++    }
++    if (pname == GL_STENCIL_VALUE_MASK && fingerprint::Controller::GetInstance().GetWebGL().GetStencilValueMask().has_value()) {
++      return WebGLAny(script_state, static_cast<uint64_t>(fingerprint::Controller::GetInstance().GetWebGL().GetStencilValueMask().value()));
++    }
++    if (pname == GL_STENCIL_WRITEMASK && fingerprint::Controller::GetInstance().GetWebGL().GetStencilWritemask().has_value()) {
++      return WebGLAny(script_state, static_cast<uint64_t>(fingerprint::Controller::GetInstance().GetWebGL().GetStencilWritemask().value()));
++    }
+   }
++  #endif // ENABLE_FINGERPRINT
+ 
+   return WebGLAny(script_state, static_cast<unsigned>(value));
+ }
+@@ -7892,13 +7913,7 @@ ScriptValue WebGLRenderingContextBase::GetWebGLFloatArrayParameter(
+   unsigned length = 0;
+   switch (pname) {
+     case GL_ALIASED_POINT_SIZE_RANGE:
+-      value = {1,1024,0,0};
+-      length = 2;
+-      break;
+     case GL_ALIASED_LINE_WIDTH_RANGE:
+-      value = {1,1,0,0};
+-      length = 2;
+-      break;
+     case GL_DEPTH_RANGE:
+       length = 2;
+       break;
+@@ -7909,6 +7924,22 @@ ScriptValue WebGLRenderingContextBase::GetWebGLFloatArrayParameter(
+     default:
+       NOTIMPLEMENTED();
+   }
++
++  #ifdef ENABLE_FINGERPRINT
++  if (fingerprint::Controller::GetInstance().GetWebGL().Enabled()) {
++    if (pname == GL_ALIASED_LINE_WIDTH_RANGE && fingerprint::Controller::GetInstance().GetWebGL().GetAliasedLineWidthRange().has_value()) {
++      auto aliased_line_width_range = fingerprint::Controller::GetInstance().GetWebGL().GetAliasedLineWidthRange().value();
++      value = {static_cast<GLfloat>(aliased_line_width_range[0]), static_cast<GLfloat>(aliased_line_width_range[1]), 0, 0};
++      length = 2;
++    }
++    if (pname == GL_ALIASED_POINT_SIZE_RANGE && fingerprint::Controller::GetInstance().GetWebGL().GetAliasedPointSizeRange().has_value()) {
++      auto aliased_point_size_range = fingerprint::Controller::GetInstance().GetWebGL().GetAliasedPointSizeRange().value();
++      value = {static_cast<GLfloat>(aliased_point_size_range[0]), static_cast<GLfloat>(aliased_point_size_range[1]), 0, 0};
++      length = 2;
++    }
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   if (ShouldMeasureGLParam(pname)) {
+     // `IdentifiableTokenBuilder::AddValue()` requires
+     // `std::has_unique_object_representations_v<>`, which doesn't hold for
+@@ -7934,7 +7965,6 @@ ScriptValue WebGLRenderingContextBase::GetWebGLIntArrayParameter(
+   unsigned length = 0;
+   switch (pname) {
+     case GL_MAX_VIEWPORT_DIMS:
+-      value = {32767, 32767, 0, 0};
+       length = 2;
+       break;
+     case GL_SCISSOR_BOX:
+@@ -7944,6 +7974,16 @@ ScriptValue WebGLRenderingContextBase::GetWebGLIntArrayParameter(
+     default:
+       NOTIMPLEMENTED();
+   }
++
++  #ifdef ENABLE_FINGERPRINT
++  if (fingerprint::Controller::GetInstance().GetWebGL().Enabled()) {
++    if (pname == GL_MAX_VIEWPORT_DIMS && fingerprint::Controller::GetInstance().GetWebGL().GetMaxViewportDims().has_value()) {
++      auto max_viewport_dims = fingerprint::Controller::GetInstance().GetWebGL().GetMaxViewportDims().value();
++      value = {static_cast<GLint>(max_viewport_dims[0]), static_cast<GLint>(max_viewport_dims[1]), 0, 0};
++    }
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   if (ShouldMeasureGLParam(pname)) {
+     blink::IdentifiableTokenBuilder builder;
+     for (unsigned i = 0; i < length; i++) {
+-- 
+2.43.0
+

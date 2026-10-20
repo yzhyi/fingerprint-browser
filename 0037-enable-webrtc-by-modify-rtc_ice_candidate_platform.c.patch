@@ -1,0 +1,219 @@
+From 463662c9ca98de935b19a87c4491c451035816e6 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Fri, 24 Oct 2025 10:08:12 +0800
+Subject: [PATCH 37/68] enable webrtc by modify rtc_ice_candidate_platform.cc
+
+---
+ a_tools/BUILD.gn                              |  1 -
+ a_tools/fingerprint/webrtc/webrtc.cc          | 95 +++++++++++++++++--
+ a_tools/fingerprint/webrtc/webrtc.h           |  2 +-
+ config.json                                   |  4 +-
+ third_party/blink/renderer/platform/BUILD.gn  |  4 +
+ .../rtc_ice_candidate_platform.cc             |  9 ++
+ 6 files changed, 102 insertions(+), 13 deletions(-)
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index 1ac68b2f69099..1786e768ed7d5 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -37,7 +37,6 @@ static_library("a_tools") {
+   deps = [
+     "//base/allocator/partition_allocator:raw_ptr",
+     "//third_party/abseil-cpp:absl",
+-    "//third_party/webrtc_overrides:webrtc_component",
+   ]
+ 
+   # 编译配置（继承 Chromium 通用编译规则，如警告等级、C++ 标准等）
+diff --git a/a_tools/fingerprint/webrtc/webrtc.cc b/a_tools/fingerprint/webrtc/webrtc.cc
+index 18d706e2fc77f..0c2e01d3ba648 100644
+--- a/a_tools/fingerprint/webrtc/webrtc.cc
++++ b/a_tools/fingerprint/webrtc/webrtc.cc
+@@ -1,6 +1,8 @@
++#include <cstdint>
++#include <sstream>
++
+ #include "webrtc.h"
+ #include "a_tools/fingerprint/utils/parse_json.h"
+-#include "third_party/webrtc/api/candidate.h"
+ 
+ namespace fingerprint {
+ 
+@@ -34,19 +36,94 @@ bool WebRTC::ParseJson(const absl::optional<base::Value> &json_value) {
+   return false;
+ }
+ 
+-// TODO: Yzhyi
+-void WebRTC::ModifyAddress(webrtc::IceCandidateType type, webrtc::SocketAddress &address) {
++static std::string ExtractCandidateType(const std::string& candidate_str) {
++  // 查找 "typ " 关键字
++  size_t typ_pos = candidate_str.find(" typ ");
++  if (typ_pos == std::string::npos) {
++    return "";
++  }
++
++  // 跳过 " typ "
++  size_t type_start = typ_pos + 5;
++  if (type_start >= candidate_str.length()) {
++    return "";
++  }
++
++  // 查找类型结束位置（空格或字符串结尾）
++  size_t type_end = candidate_str.find(' ', type_start);
++  if (type_end == std::string::npos) {
++    type_end = candidate_str.length();
++  }
++
++  return candidate_str.substr(type_start, type_end - type_start);
++}
++
++static std::string ReplaceCandidateAddress(
++    const std::string &candidate_str,
++    const std::string &new_ip,
++    uint16_t new_port) {
++
++  // 候选者字符串格式: candidate:foundation component protocol priority ip port typ type [...]
++  // 我们需要替换第5和第6个字段（IP和端口）
++
++  std::istringstream iss(candidate_str);
++  std::vector<std::string> tokens;
++  std::string token;
++
++  // 分割字符串
++  while (iss >> token) {
++    tokens.push_back(token);
++  }
++
++  // 检查格式是否正确（至少需要7个字段）
++  if (tokens.size() < 7) {
++    return "";
++  }
++
++  // 替换 IP（第5个字段，索引4）和端口（第6个字段，索引5）
++  tokens[4] = new_ip;
++  tokens[5] = std::to_string(new_port);
++
++  // 重新组装字符串
++  std::ostringstream oss;
++  for (size_t i = 0; i < tokens.size(); ++i) {
++    if (i > 0) {
++      oss << " ";
++    }
++    oss << tokens[i];
++  }
++
++  return oss.str();
++}
++
++std::string WebRTC::ModifyCandidate(std::string candidate) {
+   if (m_enabled) {
+-    if (type == webrtc::IceCandidateType::kHost) {
+-      address = webrtc::SocketAddress(m_host_ip, static_cast<int>(m_host_port));
++    std::string detected_type = ExtractCandidateType(candidate);
++    if (detected_type.empty()) {
++      return candidate;
+     }
+-    else if (type == webrtc::IceCandidateType::kSrflx) {
+-      address = webrtc::SocketAddress(m_srflx_ip, static_cast<int>(m_srflx_port));
++    std::string ip;
++    uint16_t port{0};
++    if (detected_type == "host") {
++      ip = m_host_ip;
++      port = static_cast<uint16_t>(m_host_port);
++    } else if (detected_type == "srflx") {
++      ip = m_srflx_ip;
++      port = static_cast<uint16_t>(m_srflx_port);
++    } else if (detected_type == "relay") {
++      ip = m_relay_ip;
++      port = static_cast<uint16_t>(m_relay_port);
++    } else { // prflx
++      ip = m_srflx_ip;
++      port = static_cast<uint16_t>(m_srflx_port);
+     }
+-    else if (type == webrtc::IceCandidateType::kRelay) {
+-      address = webrtc::SocketAddress(m_relay_ip, static_cast<int>(m_relay_port));
++    std::string modified_candidate = ReplaceCandidateAddress(candidate, ip, port);
++
++    if (!modified_candidate.empty()) {
++      candidate = modified_candidate;
+     }
+   }
++  return candidate;
+ }
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/webrtc/webrtc.h b/a_tools/fingerprint/webrtc/webrtc.h
+index 3abb9eb396653..badc73f276186 100644
+--- a/a_tools/fingerprint/webrtc/webrtc.h
++++ b/a_tools/fingerprint/webrtc/webrtc.h
+@@ -26,7 +26,7 @@ private:
+ 
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+-  void ModifyAddress(webrtc::IceCandidateType type, webrtc::SocketAddress &address);
++  std::string ModifyCandidate(std::string candidate);
+ 
+ private:
+   std::string m_host_ip;
+diff --git a/config.json b/config.json
+index 6d41e5a0c3645..7d32b26014fa6 100644
+--- a/config.json
++++ b/config.json
+@@ -70,11 +70,11 @@
+         "port": 9999
+       },
+       "srflx": {
+-        "ip": "38.71.127.148",
++        "ip": "38.71.127.41",
+         "port": 8888
+       },
+       "relay": {
+-        "ip": "38.71.127.149",
++        "ip": "38.71.127.41",
+         "port": 7777
+       }
+     }
+diff --git a/third_party/blink/renderer/platform/BUILD.gn b/third_party/blink/renderer/platform/BUILD.gn
+index 6a8c6da449032..d036ac051dd05 100644
+--- a/third_party/blink/renderer/platform/BUILD.gn
++++ b/third_party/blink/renderer/platform/BUILD.gn
+@@ -1961,6 +1961,10 @@ component("platform") {
+ 
+   configs -= [ "//build/config/compiler:default_symbols" ]
+   configs += blink_symbols_config
++
++  # Yzhyi start
++  deps += [ "//a_tools" ]
++  # Yzhyi end
+ }
+ 
+ static_library("test_support") {
+diff --git a/third_party/blink/renderer/platform/peerconnection/rtc_ice_candidate_platform.cc b/third_party/blink/renderer/platform/peerconnection/rtc_ice_candidate_platform.cc
+index 7b018291f30d7..f7f9abb0697f5 100644
+--- a/third_party/blink/renderer/platform/peerconnection/rtc_ice_candidate_platform.cc
++++ b/third_party/blink/renderer/platform/peerconnection/rtc_ice_candidate_platform.cc
+@@ -2,6 +2,10 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++// Yzhyi start
++#include "a_tools/fingerprint/controller.h"
++// Yzhyi end
++
+ #include "third_party/blink/renderer/platform/peerconnection/rtc_ice_candidate_platform.h"
+ 
+ #include "third_party/webrtc/api/candidate.h"
+@@ -68,6 +72,11 @@ RTCIceCandidatePlatform::RTCIceCandidatePlatform(
+ }
+ 
+ void RTCIceCandidatePlatform::PopulateFields(bool use_username_from_candidate) {
++
++  // Yzhyi start
++  candidate_ = String(fingerprint::Controller::GetInstance().GetWebRTC().ModifyCandidate(candidate_.Ascii()));
++  // Yzhyi end
++
+   webrtc::Candidate c;
+   if (!webrtc::ParseCandidate(candidate_.Utf8(), &c, nullptr, true))
+     return;
+-- 
+2.43.0
+

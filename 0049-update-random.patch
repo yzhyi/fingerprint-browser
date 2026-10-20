@@ -1,0 +1,127 @@
+From 6dbc89e0b1effab0f60602785570b439ccce533e Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Tue, 28 Oct 2025 19:44:56 +0800
+Subject: [PATCH 49/68] update random
+
+---
+ a_tools/fingerprint/utils/random.cc | 50 ++++++++++++++++++++++++++---
+ a_tools/fingerprint/utils/random.h  | 11 +++++--
+ config.json                         | 11 +++++++
+ 3 files changed, 65 insertions(+), 7 deletions(-)
+
+diff --git a/a_tools/fingerprint/utils/random.cc b/a_tools/fingerprint/utils/random.cc
+index 60af950b24556..3b433bdf29198 100644
+--- a/a_tools/fingerprint/utils/random.cc
++++ b/a_tools/fingerprint/utils/random.cc
+@@ -1,19 +1,59 @@
+ #include <random>
++#include <chrono>
++#include <mutex>
+ 
+ #include "./random.h"
+ #include "base/logging.h"
+ 
+ namespace fingerprint {
+ 
+-int RandomInt(int min, int max) {
++// 全局随机数引擎和互斥锁
++static thread_local std::mt19937_64 g_random_engine;
++static std::mutex g_seed_mutex;
++static bool g_engine_initialized = false;
++
++// 公共的初始化函数
++static void InitializeRandomEngine(uint64_t seed) {
++  std::lock_guard<std::mutex> lock(g_seed_mutex);
++
++  if (seed != 0) {
++    // 使用提供的 seed
++    g_random_engine.seed(seed);
++    g_engine_initialized = true;
++  } else if (!g_engine_initialized) {
++    // 第一次调用时，使用当前时间初始化
++    uint64_t time_seed = std::chrono::steady_clock::now().time_since_epoch().count();
++    g_random_engine.seed(time_seed);
++    g_engine_initialized = true;
++  }
++}
++
++int RandomInt(int min, int max, uint64_t seed) {
++  // 参数验证
+   if (min > max) {
+     LOG(ERROR) << "Invalid range: min (" << min << ") is greater than max (" << max << ")";
++    return min;
+   }
+-  static std::mt19937_64 engine(
+-    std::chrono::steady_clock::now().time_since_epoch().count()
+-  );
++
++  // 初始化引擎
++  InitializeRandomEngine(seed);
++
+   std::uniform_int_distribution<int> distribution(min, max);
+-  return distribution(engine);
++  return distribution(g_random_engine);
++}
++
++double RandomDouble(double min, double max, uint64_t seed) {
++  // 参数验证
++  if (min > max) {
++    LOG(ERROR) << "Invalid range: min (" << min << ") is greater than max (" << max << ")";
++    return min;
++  }
++
++  // 初始化引擎
++  InitializeRandomEngine(seed);
++
++  std::uniform_real_distribution<double> distribution(min, max);
++  return distribution(g_random_engine);
+ }
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/utils/random.h b/a_tools/fingerprint/utils/random.h
+index df1dd039c5af1..15b8ba505bcf7 100644
+--- a/a_tools/fingerprint/utils/random.h
++++ b/a_tools/fingerprint/utils/random.h
+@@ -1,9 +1,16 @@
+-# pragma once
++#pragma once
+ 
++#include <cstdint>
+ #include "base/base_export.h"
+ 
+ namespace fingerprint {
+ 
+-BASE_EXPORT int RandomInt(int min, int max);
++// 生成指定范围内的随机整数
++// 如果提供了 seed，则使用该种子；否则使用当前时间作为种子
++BASE_EXPORT int RandomInt(int min, int max, uint64_t seed = 0);
++
++// 生成指定范围内的随机浮点数
++// 如果提供了 seed，则使用该种子；否则使用当前时间作为种子
++BASE_EXPORT double RandomDouble(double min, double max, uint64_t seed = 0);
+ 
+ } // namespace fingerprint
+diff --git a/config.json b/config.json
+index 552c7c36881cb..1ae207b83dfa4 100644
+--- a/config.json
++++ b/config.json
+@@ -150,5 +150,16 @@
+     "params": {
+       "max_touch_points": 5
+     }
++  },
++  "webaudio": {
++    "enabled": false,
++    "params": {
++      "offline_audio_Context": {
++        "sample_rate": {
++          "noise_min": 0,
++          "noise_max": 100
++        }
++      }
++    }
+   }
+ }
+-- 
+2.43.0
+

@@ -1,0 +1,161 @@
+From 617fddf0fed46e198bd852afca38122858535fb5 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Thu, 23 Oct 2025 19:07:35 +0800
+Subject: [PATCH 36/68] enable webrtc by modify
+ third_party/webrtc/api/candidate.cc (in debug mode will lead circular
+ dependency)
+
+---
+ a_tools/BUILD.gn                     |  5 +----
+ a_tools/fingerprint/tls/tls.h        |  1 +
+ a_tools/fingerprint/webrtc/webrtc.cc | 20 ++++++++++----------
+ config.json                          |  4 ++--
+ net/BUILD.gn                         |  4 ++++
+ net/socket/ssl_client_socket_impl.cc |  6 ++++--
+ 6 files changed, 22 insertions(+), 18 deletions(-)
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index 8cad55b0aa454..1ac68b2f69099 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -34,13 +34,10 @@ static_library("a_tools") {
+     "fingerprint/hardware_concurrency/hardware_concurrency.cc",
+   ]
+ 
+-  # public_deps = [
+-  #   "//base",
+-  # ]
+   deps = [
+     "//base/allocator/partition_allocator:raw_ptr",
+     "//third_party/abseil-cpp:absl",
+-  #   "//third_party/webrtc_overrides:webrtc_component",
++    "//third_party/webrtc_overrides:webrtc_component",
+   ]
+ 
+   # 编译配置（继承 Chromium 通用编译规则，如警告等级、C++ 标准等）
+diff --git a/a_tools/fingerprint/tls/tls.h b/a_tools/fingerprint/tls/tls.h
+index 84b7a0690c8f4..6166ff67bb139 100644
+--- a/a_tools/fingerprint/tls/tls.h
++++ b/a_tools/fingerprint/tls/tls.h
+@@ -21,6 +21,7 @@ private:
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+   void ModifyCipherSuites(std::string &command);
++  // TODO: Yzhyi modify extensions
+ 
+ private:
+   std::vector<std::string> m_adds;
+diff --git a/a_tools/fingerprint/webrtc/webrtc.cc b/a_tools/fingerprint/webrtc/webrtc.cc
+index 4cb94c7c0ff2b..18d706e2fc77f 100644
+--- a/a_tools/fingerprint/webrtc/webrtc.cc
++++ b/a_tools/fingerprint/webrtc/webrtc.cc
+@@ -1,6 +1,6 @@
+ #include "webrtc.h"
+ #include "a_tools/fingerprint/utils/parse_json.h"
+-// #include "third_party/webrtc/api/candidate.h"
++#include "third_party/webrtc/api/candidate.h"
+ 
+ namespace fingerprint {
+ 
+@@ -37,15 +37,15 @@ bool WebRTC::ParseJson(const absl::optional<base::Value> &json_value) {
+ // TODO: Yzhyi
+ void WebRTC::ModifyAddress(webrtc::IceCandidateType type, webrtc::SocketAddress &address) {
+   if (m_enabled) {
+-    // if (type == webrtc::IceCandidateType::kHost) {
+-    //   address = webrtc::SocketAddress(m_host_ip, static_cast<int>(m_host_port));
+-    // }
+-    // else if (type == webrtc::IceCandidateType::kSrflx) {
+-    //   address = webrtc::SocketAddress(m_srflx_ip, static_cast<int>(m_srflx_port));
+-    // }
+-    // else if (type == webrtc::IceCandidateType::kRelay) {
+-    //   address = webrtc::SocketAddress(m_relay_ip, static_cast<int>(m_relay_port));
+-    // }
++    if (type == webrtc::IceCandidateType::kHost) {
++      address = webrtc::SocketAddress(m_host_ip, static_cast<int>(m_host_port));
++    }
++    else if (type == webrtc::IceCandidateType::kSrflx) {
++      address = webrtc::SocketAddress(m_srflx_ip, static_cast<int>(m_srflx_port));
++    }
++    else if (type == webrtc::IceCandidateType::kRelay) {
++      address = webrtc::SocketAddress(m_relay_ip, static_cast<int>(m_relay_port));
++    }
+   }
+ }
+ 
+diff --git a/config.json b/config.json
+index 5f6f6c1e57949..6d41e5a0c3645 100644
+--- a/config.json
++++ b/config.json
+@@ -12,7 +12,7 @@
+     }
+   },
+   "webgl": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "#unmasked_vendor_webgl": "Google Inc. (Apple)",
+       "#unmasked_renderer_webgl": "ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Pro, Unspecified Version)",
+@@ -63,7 +63,7 @@
+     }
+   },
+   "webrtc": {
+-    "enabled": false,
++    "enabled": true,
+     "params": {
+       "host": {
+         "ip": "192.168.0.127",
+diff --git a/net/BUILD.gn b/net/BUILD.gn
+index 3e22ee52c99b6..2b5db4f62f459 100644
+--- a/net/BUILD.gn
++++ b/net/BUILD.gn
+@@ -1798,6 +1798,10 @@ component("net") {
+     ]
+     deps += [ "//sql:sql" ]
+   }
++
++  # Yzhyi start
++  deps += [ "//a_tools" ]
++  # Yzhyi end
+ }
+ 
+ # net_export.h has its own build target so that code (eg
+diff --git a/net/socket/ssl_client_socket_impl.cc b/net/socket/ssl_client_socket_impl.cc
+index ca7e022db6cdc..e003b28c900f7 100644
+--- a/net/socket/ssl_client_socket_impl.cc
++++ b/net/socket/ssl_client_socket_impl.cc
+@@ -680,6 +680,7 @@ int SSLClientSocketImpl::Init() {
+   }
+ 
+   if (context_->config().post_quantum_key_agreement_enabled) {
++    // TODO: Yzhyi modify curves in here (but don't affect ja4)
+     const uint16_t kGroups[] = {SSL_GROUP_X25519_MLKEM768, SSL_GROUP_X25519,
+                                 SSL_GROUP_SECP256R1, SSL_GROUP_SECP384R1};
+     if (!SSL_set1_group_ids(ssl_.get(), kGroups, std::size(kGroups))) {
+@@ -770,7 +771,7 @@ int SSLClientSocketImpl::Init() {
+     }
+   }
+   // Yzhyi start
+-  // fingerprint::Controller::GetInstance().GetTLS().ModifyCipherSuites(command);
++  fingerprint::Controller::GetInstance().GetTLS().ModifyCipherSuites(command);
+   // Yzhyi end
+ 
+   if (!SSL_set_strict_cipher_list(ssl_.get(), command.c_str())) {
+@@ -781,13 +782,14 @@ int SSLClientSocketImpl::Init() {
+   // Disable SHA-1 server signatures.
+   // TODO(crbug.com/boringssl/699): Once the default is flipped in BoringSSL, we
+   // no longer need to override it.
++
++  // TODO: Yzhyi modify signature_algorithms in here (but don't affect ja4)
+   static const uint16_t kVerifyPrefs[] = {
+       SSL_SIGN_ECDSA_SECP256R1_SHA256, SSL_SIGN_RSA_PSS_RSAE_SHA256,
+       SSL_SIGN_RSA_PKCS1_SHA256,       SSL_SIGN_ECDSA_SECP384R1_SHA384,
+       SSL_SIGN_RSA_PSS_RSAE_SHA384,    SSL_SIGN_RSA_PKCS1_SHA384,
+       SSL_SIGN_RSA_PSS_RSAE_SHA512,    SSL_SIGN_RSA_PKCS1_SHA512,
+   };
+-  // TODO: Yzhyi modify signature_algorithms in here
+   if (!SSL_set_verify_algorithm_prefs(ssl_.get(), kVerifyPrefs,
+                                       std::size(kVerifyPrefs))) {
+     return ERR_UNEXPECTED;
+-- 
+2.43.0
+

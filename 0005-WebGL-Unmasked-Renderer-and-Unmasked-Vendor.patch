@@ -1,0 +1,92 @@
+From 4ea38bd6288a64bee364558faa3acee900088ad0 Mon Sep 17 00:00:00 2001
+From: yuzhengyi02 <yuzhengyi02@meituan.com>
+Date: Thu, 4 Sep 2025 16:18:56 +0800
+Subject: [PATCH 05/68] WebGL: Unmasked Renderer and Unmasked Vendor
+
+---
+ .../webgl/webgl_rendering_context_base.cc     | 55 +++++++++++++++++--
+ 1 file changed, 51 insertions(+), 4 deletions(-)
+
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index 50f49136614b0..2251820434af7 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -23,6 +23,15 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++// Yzhyi start
++#include <iostream>
++#include "base/command_line.h"
++#include "third_party/blink/public/common/switches.h"
++#include "base/json/json_reader.h"
++#include "base/values.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++// Yzhyi end
++
+ #include "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h"
+ 
+ #include <memory>
+@@ -4052,8 +4061,27 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+               pname, IdentifiabilityBenignStringToken(
+                          String(ContextGL()->GetString(GL_RENDERER))));
+         }
+-        return WebGLAny(script_state,
+-                        String(ContextGL()->GetString(GL_RENDERER)));
++        // Yzhyi start
++        const base::CommandLine *yzhyi_command_line =
++          base::CommandLine::ForCurrentProcess();
++        if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
++          std::string yzhyi_command_str = yzhyi_command_line->
++            GetSwitchValueASCII(switches::kYzhyi);
++          absl::optional<base::Value> yzhyi_command_value =
++            base::JSONReader::Read(yzhyi_command_str);
++          base::DictValue* webgl_dict = yzhyi_command_value->GetDict().FindDict("webgl");
++          base::DictValue* debug_renderer_info_dict = webgl_dict->FindDict("debug_renderer_info");
++          std::string *unmasked_renderer_str = debug_renderer_info_dict->FindString("unmasked_renderer");
++          if (unmasked_renderer_str != nullptr) {
++            return WebGLAny(script_state,
++                            String(*unmasked_renderer_str));
++          }
++          else {
++            return WebGLAny(script_state,
++                            String(ContextGL()->GetString(GL_RENDERER)));
++          }
++        }
++        // Yzhyi end
+       }
+       SynthesizeGLError(
+           GL_INVALID_ENUM, "getParameter",
+@@ -4067,8 +4095,27 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+               pname, IdentifiabilityBenignStringToken(
+                          String(ContextGL()->GetString(GL_VENDOR))));
+         }
+-        return WebGLAny(script_state,
+-                        String(ContextGL()->GetString(GL_VENDOR)));
++        // Yzhyi start
++        const base::CommandLine *yzhyi_command_line =
++          base::CommandLine::ForCurrentProcess();
++        if (yzhyi_command_line->HasSwitch(switches::kYzhyi)) {
++          std::string yzhyi_command_str = yzhyi_command_line->
++            GetSwitchValueASCII(switches::kYzhyi);
++          absl::optional<base::Value> yzhyi_command_value =
++            base::JSONReader::Read(yzhyi_command_str);
++          base::DictValue* webgl_dict = yzhyi_command_value->GetDict().FindDict("webgl");
++          base::DictValue* debug_renderer_info_dict = webgl_dict->FindDict("debug_renderer_info");
++          std::string *unmasked_vendor_str = debug_renderer_info_dict->FindString("unmasked_vendor");
++          if (unmasked_vendor_str != nullptr) {
++            return WebGLAny(script_state,
++                            String(*unmasked_vendor_str));
++          }
++          else {
++            return WebGLAny(script_state,
++                            String(ContextGL()->GetString(GL_VENDOR)));
++          }
++        }
++        // Yzhyi end
+       }
+       SynthesizeGLError(
+           GL_INVALID_ENUM, "getParameter",
+-- 
+2.43.0
+

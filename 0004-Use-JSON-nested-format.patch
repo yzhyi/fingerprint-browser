@@ -1,0 +1,66 @@
+From f39f4f7a3ebcb78ced4ef5ae2ca36b03ee7a0695 Mon Sep 17 00:00:00 2001
+From: yuzhengyi02 <yuzhengyi02@meituan.com>
+Date: Thu, 4 Sep 2025 15:49:48 +0800
+Subject: [PATCH 04/68] Use JSON nested format
+
+---
+ .../renderer/core/html/canvas/html_canvas_element.cc     | 6 ++++--
+ .../canvas/canvas2d/canvas_2d_recorder_context.cc        | 9 +++++----
+ 2 files changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+index dc8318c52cc53..ddb2918df7fa4 100644
+--- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
++++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+@@ -546,7 +546,8 @@ void HTMLCanvasElement::setWidth(unsigned value,
+         GetSwitchValueASCII(switches::kYzhyi);
+       absl::optional<base::Value> yzhyi_command_value =
+         base::JSONReader::Read(yzhyi_command_str);
+-      std::optional<double> canvas_width = yzhyi_command_value->GetDict().FindDouble("canvas_set_width");
++      base::DictValue* canvas_dict = yzhyi_command_value->GetDict().FindDict("canvas");
++      std::optional<double> canvas_width = canvas_dict->FindDouble("set_width");
+       if (canvas_width.has_value()) {
+         value += canvas_width.value();
+       }
+@@ -568,7 +569,8 @@ void HTMLCanvasElement::setHeight(unsigned value,
+         GetSwitchValueASCII(switches::kYzhyi);
+       absl::optional<base::Value> yzhyi_command_value =
+         base::JSONReader::Read(yzhyi_command_str);
+-      std::optional<double> canvas_height = yzhyi_command_value->GetDict().FindDouble("canvas_set_height");
++      base::DictValue* canvas_dict = yzhyi_command_value->GetDict().FindDict("canvas");
++      std::optional<double> canvas_height = canvas_dict->FindDouble("set_height");
+       if (canvas_height.has_value()) {
+         value += canvas_height.value();
+       }
+diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
+index 9dc23bdbeacd9..b70fb6a43096e 100644
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
+@@ -1928,19 +1928,20 @@ void Canvas2DRecorderContext::fillRect(double x,
+       GetSwitchValueASCII(switches::kYzhyi);
+     absl::optional<base::Value> yzhyi_command_value =
+       base::JSONReader::Read(yzhyi_command_str);
+-    std::optional<double> canvas_fill_rect_x = yzhyi_command_value->GetDict().FindDouble("canvas_fill_rect_x");
++    base::DictValue* canvas_dict = yzhyi_command_value->GetDict().FindDict("canvas");
++    std::optional<double> canvas_fill_rect_x = canvas_dict->FindDouble("fill_rect_x");
+     if (canvas_fill_rect_x.has_value()) {
+       x += canvas_fill_rect_x.value();
+     }
+-    std::optional<double> canvas_fill_rect_y = yzhyi_command_value->GetDict().FindDouble("canvas_fill_rect_y");
++    std::optional<double> canvas_fill_rect_y = canvas_dict->FindDouble("fill_rect_y");
+     if (canvas_fill_rect_y.has_value()) {
+       y += canvas_fill_rect_y.value();
+     }
+-    std::optional<double> canvas_fill_rect_width = yzhyi_command_value->GetDict().FindDouble("canvas_fill_rect_width");
++    std::optional<double> canvas_fill_rect_width = canvas_dict->FindDouble("fill_rect_width");
+     if (canvas_fill_rect_width.has_value()) {
+       width += canvas_fill_rect_width.value();
+     }
+-    std::optional<double> canvas_fill_rect_height = yzhyi_command_value->GetDict().FindDouble("canvas_fill_rect_height");
++    std::optional<double> canvas_fill_rect_height = canvas_dict->FindDouble("fill_rect_height");
+     if (canvas_fill_rect_height.has_value()) {
+       height += canvas_fill_rect_height.value();
+     }
+-- 
+2.43.0
+

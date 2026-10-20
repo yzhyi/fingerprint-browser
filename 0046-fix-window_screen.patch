@@ -1,0 +1,624 @@
+From 4ed0107f7842c433d570b9471965a8f3e9bb3a63 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Tue, 28 Oct 2025 12:14:00 +0800
+Subject: [PATCH 46/68] fix window_screen
+
+---
+ a_tools/BUILD.gn                              |   4 +-
+ a_tools/fingerprint/controller.cc             |   2 +-
+ a_tools/fingerprint/controller.h              |   6 +-
+ a_tools/fingerprint/window/window.cc          |  77 ------------
+ .../window_screen/window_screen.cc            | 119 ++++++++++++++++++
+ .../window_screen.h}                          |  28 ++++-
+ config.json                                   |  10 +-
+ .../renderer/core/css/media_values_dynamic.cc |   8 +-
+ .../renderer/core/frame/local_dom_window.cc   |  30 +++++
+ .../blink/renderer/core/frame/local_frame.cc  |   2 +-
+ .../blink/renderer/core/frame/screen.cc       |  32 ++---
+ .../renderer/core/frame/visual_viewport.cc    |  18 +++
+ 12 files changed, 226 insertions(+), 110 deletions(-)
+ delete mode 100644 a_tools/fingerprint/window/window.cc
+ create mode 100644 a_tools/fingerprint/window_screen/window_screen.cc
+ rename a_tools/fingerprint/{window/window.h => window_screen/window_screen.h} (60%)
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index 6eb16de95418d..1b2d30cfedacf 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -41,8 +41,8 @@ source_set("a_tools") {
+     "fingerprint/battery/battery.cc",
+     "fingerprint/network_information/network_information.h",
+     "fingerprint/network_information/network_information.cc",
+-    "fingerprint/window/window.h",
+-    "fingerprint/window/window.cc",
++    "fingerprint/window_screen/window_screen.h",
++    "fingerprint/window_screen/window_screen.cc",
+   ]
+   deps = [
+     "//base/allocator/partition_allocator:raw_ptr",
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index e175b7761f29e..91ff4db51dc88 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -21,7 +21,7 @@ Controller::Controller()
+     m_hardware_concurrency(m_json_value),
+     m_battery(m_json_value),
+     m_network_information(m_json_value),
+-    m_window(m_json_value)
++    m_window_screen(m_json_value)
+ {}
+ 
+ Controller::~Controller() = default;
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index 7e918eb129da4..e2b651943f2e8 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -18,7 +18,7 @@
+ #include "./hardware_concurrency/hardware_concurrency.h"
+ #include "./battery/battery.h"
+ #include "./network_information/network_information.h"
+-#include "./window/window.h"
++#include "./window_screen/window_screen.h"
+ 
+ namespace fingerprint {
+ 
+@@ -42,7 +42,7 @@ public:
+   HardwareConcurrency& GetHardwareConcurrency() { return m_hardware_concurrency; }
+   Battery& GetBattery() { return m_battery; }
+   NetworkInformation& GetNetworkInformation() { return m_network_information; }
+-  Window& GetWindow() { return m_window; }
++  WindowScreen& GetWindowScreen() { return m_window_screen; }
+ 
+ private:
+   Controller();
+@@ -63,7 +63,7 @@ private:
+   HardwareConcurrency m_hardware_concurrency;
+   Battery m_battery;
+   NetworkInformation m_network_information;
+-  Window m_window;
++  WindowScreen m_window_screen;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/window/window.cc b/a_tools/fingerprint/window/window.cc
+deleted file mode 100644
+index 6011e3eb869f8..0000000000000
+--- a/a_tools/fingerprint/window/window.cc
++++ /dev/null
+@@ -1,77 +0,0 @@
+-#include "./window.h"
+-#include "../utils/random.h"
+-#include "../utils/parse_json.h"
+-#include <cstdint>
+-#include <cstdio>
+-#include <iostream>
+-
+-namespace fingerprint {
+-
+-Window::Window(const absl::optional<base::Value> &json_value) {
+-  ParseJson(json_value);
+-}
+-
+-Window::~Window() = default;
+-
+-bool Window::ParseJson(const absl::optional<base::Value> &json_value) {
+-  if (!json_value) return false;
+-  if (const base::DictValue* dict = FindDict(json_value.value(), "window"); dict) {
+-    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
+-      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
+-        if (const base::DictValue* screen_dict = FindDict(params_dict, "screen"); screen_dict) {
+-          FindDouble(screen_dict, "width", m_screen.m_width);
+-          FindDouble(screen_dict, "height", m_screen.m_height);
+-          FindDouble(screen_dict, "avail_width", m_screen.m_avail_width);
+-          FindDouble(screen_dict, "avail_height", m_screen.m_avail_height);
+-          FindDouble(screen_dict, "avail_left", m_screen.m_avail_left);
+-          FindDouble(screen_dict, "avail_top", m_screen.m_avail_top);
+-          FindDouble(screen_dict, "color_depth", m_screen.m_color_depth);
+-          FindDouble(screen_dict, "pixel_depth", m_screen.m_pixel_depth);
+-        }
+-        FindDouble(params_dict, "device_pixel_ratio", m_device_pixel_ratio);
+-      }
+-    }
+-    return true;
+-  }
+-  return false;
+-}
+-
+-int Window::GetScreenWidth() {
+-  return static_cast<int>(m_screen.m_width);
+-}
+-
+-int Window::GetScreenHeight() {
+-  return static_cast<int>(m_screen.m_height);
+-}
+-
+-int Window::GetScreenAvailWidth() {
+-  return static_cast<int>(m_screen.m_avail_width);
+-}
+-
+-int Window::GetScreenAvailHeight() {
+-  return static_cast<int>(m_screen.m_avail_height);
+-}
+-
+-int Window::GetScreenAvailLeft() {
+-  return static_cast<int>(m_screen.m_avail_left);
+-}
+-
+-int Window::GetScreenAvailTop() {
+-  return static_cast<int>(m_screen.m_avail_top);
+-}
+-
+-unsigned Window::GetScreenColorDepth() {
+-  return static_cast<unsigned>(m_screen.m_color_depth);
+-}
+-
+-unsigned Window::GetScreenPixelDepth() {
+-  return static_cast<unsigned>(m_screen.m_pixel_depth);
+-}
+-
+-void Window::ModifyDevicePixelRatio(double &device_pixel_ratio) {
+-  if (m_enabled) {
+-    device_pixel_ratio = m_device_pixel_ratio;
+-  }
+-}
+-
+-} // namespace fingerprint
+diff --git a/a_tools/fingerprint/window_screen/window_screen.cc b/a_tools/fingerprint/window_screen/window_screen.cc
+new file mode 100644
+index 0000000000000..212cdebb98953
+--- /dev/null
++++ b/a_tools/fingerprint/window_screen/window_screen.cc
+@@ -0,0 +1,119 @@
++#include "./window_screen.h"
++#include "../utils/random.h"
++#include "../utils/parse_json.h"
++#include <cassert>
++#include <cstdint>
++#include <cstdio>
++#include <iostream>
++
++namespace fingerprint {
++
++WindowScreen::WindowScreen(const absl::optional<base::Value> &json_value) {
++  ParseJson(json_value);
++}
++
++WindowScreen::~WindowScreen() = default;
++
++bool WindowScreen::ParseJson(const absl::optional<base::Value> &json_value) {
++  if (!json_value) return false;
++  if (const base::DictValue* dict = FindDict(json_value.value(), "window_screen"); dict) {
++    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
++      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        if (const base::DictValue* screen_dict = FindDict(params_dict, "screen"); screen_dict) {
++          FindDouble(screen_dict, "width", m_screen.m_width);
++          FindDouble(screen_dict, "height", m_screen.m_height);
++          FindDouble(screen_dict, "avail_width", m_screen.m_avail_width);
++          FindDouble(screen_dict, "avail_height", m_screen.m_avail_height);
++          FindDouble(screen_dict, "avail_left", m_screen.m_avail_left);
++          FindDouble(screen_dict, "avail_top", m_screen.m_avail_top);
++          FindDouble(screen_dict, "color_depth", m_screen.m_color_depth);
++          FindDouble(screen_dict, "pixel_depth", m_screen.m_pixel_depth);
++        }
++
++
++        FindDouble(params_dict, "inner_width", m_inner_width);
++        FindDouble(params_dict, "inner_height", m_inner_height);
++        FindDouble(params_dict, "outer_width", m_outer_width);
++        FindDouble(params_dict, "outer_height", m_outer_height);
++
++        if (const base::DictValue* visual_viewport_dict = FindDict(params_dict, "visual_viewport"); visual_viewport_dict) {
++          FindDouble(visual_viewport_dict, "width", m_visual_viewport.m_width);
++          FindDouble(visual_viewport_dict, "height", m_visual_viewport.m_height);
++        }
++
++        FindDouble(params_dict, "device_pixel_ratio", m_device_pixel_ratio);
++        // NOTE: Yzhyi
++        // assert(m_inner_height <= m_screen.m_avail_height && m_inner_width <= m_screen.m_avail_width);
++        // assert(m_screen.m_avail_height <= m_screen.m_height && m_screen.m_avail_width <= m_screen.m_width);
++        // assert(m_inner_height < m_outer_height && m_inner_width < m_outer_width);
++        // assert(m_screen.m_color_depth == m_screen.m_pixel_depth);
++      }
++    }
++    return true;
++  }
++  return false;
++}
++
++int WindowScreen::GetScreenWidth() {
++  return static_cast<int>(m_screen.m_width);
++}
++
++int WindowScreen::GetScreenHeight() {
++  return static_cast<int>(m_screen.m_height);
++}
++
++int WindowScreen::GetScreenAvailWidth() {
++  return static_cast<int>(m_screen.m_avail_width);
++}
++
++int WindowScreen::GetScreenAvailHeight() {
++  return static_cast<int>(m_screen.m_avail_height);
++}
++
++int WindowScreen::GetScreenAvailLeft() {
++  return static_cast<int>(m_screen.m_avail_left);
++}
++
++int WindowScreen::GetScreenAvailTop() {
++  return static_cast<int>(m_screen.m_avail_top);
++}
++
++unsigned WindowScreen::GetScreenColorDepth() {
++  return static_cast<unsigned>(m_screen.m_color_depth);
++}
++
++unsigned WindowScreen::GetScreenPixelDepth() {
++  return static_cast<unsigned>(m_screen.m_pixel_depth);
++}
++
++int WindowScreen::GetInnerWidth() {
++  return static_cast<int>(m_inner_width);
++}
++
++int WindowScreen::GetInnerHeight() {
++  return static_cast<int>(m_inner_height);
++}
++
++int WindowScreen::GetOuterWidth() {
++  return static_cast<int>(m_outer_width);
++}
++
++int WindowScreen::GetOuterHeight() {
++  return static_cast<int>(m_outer_height);
++}
++
++int WindowScreen::GetVisualViewportWidth() {
++  return m_visual_viewport.m_width;
++}
++
++int WindowScreen::GetVisualViewportHeight() {
++  return m_visual_viewport.m_height;
++}
++
++void WindowScreen::ModifyDevicePixelRatio(double &device_pixel_ratio) {
++  if (m_enabled) {
++    device_pixel_ratio = m_device_pixel_ratio;
++  }
++}
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/window/window.h b/a_tools/fingerprint/window_screen/window_screen.h
+similarity index 60%
+rename from a_tools/fingerprint/window/window.h
+rename to a_tools/fingerprint/window_screen/window_screen.h
+index 415d662d62604..68984fc951188 100644
+--- a/a_tools/fingerprint/window/window.h
++++ b/a_tools/fingerprint/window_screen/window_screen.h
+@@ -9,15 +9,15 @@ namespace fingerprint {
+ 
+ class Controller;
+ 
+-class Window : public BaseFingerprint {
++class WindowScreen : public BaseFingerprint {
+ public:
+   friend Controller;
+-  Window(const Window&) = delete;
+-  Window& operator=(const Window&) = delete;
++  WindowScreen(const WindowScreen&) = delete;
++  WindowScreen& operator=(const WindowScreen&) = delete;
+ 
+ private:
+-  explicit Window(const absl::optional<base::Value> &json_value);
+-  ~Window() override;
++  explicit WindowScreen(const absl::optional<base::Value> &json_value);
++  ~WindowScreen() override;
+ 
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+@@ -30,6 +30,14 @@ public:
+   BASE_EXPORT unsigned GetScreenColorDepth();
+   BASE_EXPORT unsigned GetScreenPixelDepth();
+ 
++  BASE_EXPORT int GetInnerWidth();
++  BASE_EXPORT int GetInnerHeight();
++  BASE_EXPORT int GetOuterWidth();
++  BASE_EXPORT int GetOuterHeight();
++
++  BASE_EXPORT int GetVisualViewportWidth();
++  BASE_EXPORT int GetVisualViewportHeight();
++
+   BASE_EXPORT void ModifyDevicePixelRatio(double &device_pixel_ratio);
+ 
+ private:
+@@ -44,6 +52,16 @@ private:
+     double m_pixel_depth{0};
+   } m_screen;
+ 
++  double m_inner_width{0};
++  double m_inner_height{0};
++  double m_outer_width{0};
++  double m_outer_height{0};
++
++  struct VisualViewport{
++    double m_width{0};
++    double m_height{0};
++  } m_visual_viewport;
++
+   double m_device_pixel_ratio{1};
+ };
+ 
+diff --git a/config.json b/config.json
+index 5b80673cb36da..0a7de7e792888 100644
+--- a/config.json
++++ b/config.json
+@@ -121,7 +121,7 @@
+       "effective_type": "1g"
+     }
+   },
+-  "window": {
++  "window_screen": {
+     "enabled": true,
+     "params": {
+       "screen": {
+@@ -134,6 +134,14 @@
+         "color_depth": 32,
+         "pixel_depth": 32
+       },
++      "inner_width": 2560,
++      "inner_height": 1660,
++      "outer_width": 2560,
++      "outer_height": 1660,
++      "visual_viewport": {
++        "width": 2560,
++        "height": 1660
++      },
+       "device_pixel_ratio": 1
+     }
+   }
+diff --git a/third_party/blink/renderer/core/css/media_values_dynamic.cc b/third_party/blink/renderer/core/css/media_values_dynamic.cc
+index 61d038001c2e8..0955b3fc54f0d 100644
+--- a/third_party/blink/renderer/core/css/media_values_dynamic.cc
++++ b/third_party/blink/renderer/core/css/media_values_dynamic.cc
+@@ -175,8 +175,8 @@ double MediaValuesDynamic::ContainerHeight(const ScopedCSSName&) const {
+ int MediaValuesDynamic::DeviceWidth() const {
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (auto& window = fingerprint::Controller::GetInstance().GetWindow(); window.Enabled()) {
+-    return window.GetScreenWidth();
++  if (auto& window_screen = fingerprint::Controller::GetInstance().GetWindowScreen(); window_screen.Enabled()) {
++    return window_screen.GetScreenWidth();
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+@@ -186,8 +186,8 @@ int MediaValuesDynamic::DeviceWidth() const {
+ int MediaValuesDynamic::DeviceHeight() const {
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (auto& window = fingerprint::Controller::GetInstance().GetWindow(); window.Enabled()) {
+-    return window.GetScreenHeight();
++  if (auto& window_screen = fingerprint::Controller::GetInstance().GetWindowScreen(); window_screen.Enabled()) {
++    return window_screen.GetScreenHeight();
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+diff --git a/third_party/blink/renderer/core/frame/local_dom_window.cc b/third_party/blink/renderer/core/frame/local_dom_window.cc
+index 47d4a455aec76..aa29aca3cb003 100644
+--- a/third_party/blink/renderer/core/frame/local_dom_window.cc
++++ b/third_party/blink/renderer/core/frame/local_dom_window.cc
+@@ -24,6 +24,10 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+ 
+ #include <memory>
+@@ -1606,6 +1610,13 @@ int LocalDOMWindow::outerHeight() const {
+         lroundf(chrome_client.RootWindowRect(*frame).height() *
+                 chrome_client.GetScreenInfo(*frame).device_scale_factor));
+   }
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto& window_screen = fingerprint::Controller::GetInstance().GetWindowScreen(); window_screen.Enabled()) {
++    return window_screen.GetOuterHeight();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return chrome_client.RootWindowRect(*frame).height();
+ }
+ 
+@@ -1631,6 +1642,13 @@ int LocalDOMWindow::outerWidth() const {
+         lroundf(chrome_client.RootWindowRect(*frame).width() *
+                 chrome_client.GetScreenInfo(*frame).device_scale_factor));
+   }
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto& window_screen = fingerprint::Controller::GetInstance().GetWindowScreen(); window_screen.Enabled()) {
++    return window_screen.GetOuterWidth();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return chrome_client.RootWindowRect(*frame).width();
+ }
+ 
+@@ -1669,6 +1687,12 @@ int LocalDOMWindow::innerHeight() const {
+   if (!GetFrame())
+     return 0;
+ 
++  #ifdef ENABLE_FINGERPRINT
++  if (auto& window_screen = fingerprint::Controller::GetInstance().GetWindowScreen(); window_screen.Enabled()) {
++    return window_screen.GetInnerHeight();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return AdjustForAbsoluteZoom::AdjustInt(GetViewportSize().height(),
+                                           GetFrame()->LayoutZoomFactor());
+ }
+@@ -1677,6 +1701,12 @@ int LocalDOMWindow::innerWidth() const {
+   if (!GetFrame())
+     return 0;
+ 
++  #ifdef ENABLE_FINGERPRINT
++  if (auto& window_screen = fingerprint::Controller::GetInstance().GetWindowScreen(); window_screen.Enabled()) {
++    return window_screen.GetInnerWidth();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return AdjustForAbsoluteZoom::AdjustInt(GetViewportSize().width(),
+                                           GetFrame()->LayoutZoomFactor());
+ }
+diff --git a/third_party/blink/renderer/core/frame/local_frame.cc b/third_party/blink/renderer/core/frame/local_frame.cc
+index d75765519e61c..d80f2e48b3425 100644
+--- a/third_party/blink/renderer/core/frame/local_frame.cc
++++ b/third_party/blink/renderer/core/frame/local_frame.cc
+@@ -1861,7 +1861,7 @@ double LocalFrame::DevicePixelRatio() const {
+   ratio *= LayoutZoomFactor();
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  fingerprint::Controller::GetInstance().GetWindow().ModifyDevicePixelRatio(ratio);
++  fingerprint::Controller::GetInstance().GetWindowScreen().ModifyDevicePixelRatio(ratio);
+   #endif // ENABLE_FINGERPRINT
+ 
+   return ratio;
+diff --git a/third_party/blink/renderer/core/frame/screen.cc b/third_party/blink/renderer/core/frame/screen.cc
+index 0616fd7c078ce..92c5a8283bd27 100644
+--- a/third_party/blink/renderer/core/frame/screen.cc
++++ b/third_party/blink/renderer/core/frame/screen.cc
+@@ -123,8 +123,8 @@ int Screen::height() const {
+   }
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (auto& window = fingerprint::Controller::GetInstance().GetWindow(); window.Enabled()) {
+-    return window.GetScreenHeight();
++  if (auto& window_screen = fingerprint::Controller::GetInstance().GetWindowScreen(); window_screen.Enabled()) {
++    return window_screen.GetScreenHeight();
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+@@ -140,8 +140,8 @@ int Screen::width() const {
+   }
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (auto& window = fingerprint::Controller::GetInstance().GetWindow(); window.Enabled()) {
+-    return window.GetScreenWidth();
++  if (auto& window_screen = fingerprint::Controller::GetInstance().GetWindowScreen(); window_screen.Enabled()) {
++    return window_screen.GetScreenWidth();
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+@@ -160,8 +160,8 @@ unsigned Screen::colorDepth() const {
+   }
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (auto& window = fingerprint::Controller::GetInstance().GetWindow(); window.Enabled()) {
+-    return window.GetScreenColorDepth();
++  if (auto& window_screen = fingerprint::Controller::GetInstance().GetWindowScreen(); window_screen.Enabled()) {
++    return window_screen.GetScreenColorDepth();
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+@@ -173,8 +173,8 @@ unsigned Screen::colorDepth() const {
+ unsigned Screen::pixelDepth() const {
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (auto& window = fingerprint::Controller::GetInstance().GetWindow(); window.Enabled()) {
+-    return window.GetScreenPixelDepth();
++  if (auto& window_screen = fingerprint::Controller::GetInstance().GetWindowScreen(); window_screen.Enabled()) {
++    return window_screen.GetScreenPixelDepth();
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+@@ -190,8 +190,8 @@ int Screen::availLeft() const {
+   }
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (auto& window = fingerprint::Controller::GetInstance().GetWindow(); window.Enabled()) {
+-    return window.GetScreenAvailLeft();
++  if (auto& window_screen = fingerprint::Controller::GetInstance().GetWindowScreen(); window_screen.Enabled()) {
++    return window_screen.GetScreenAvailLeft();
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+@@ -207,8 +207,8 @@ int Screen::availTop() const {
+   }
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (auto& window = fingerprint::Controller::GetInstance().GetWindow(); window.Enabled()) {
+-    return window.GetScreenAvailTop();
++  if (auto& window_screen = fingerprint::Controller::GetInstance().GetWindowScreen(); window_screen.Enabled()) {
++    return window_screen.GetScreenAvailTop();
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+@@ -224,8 +224,8 @@ int Screen::availHeight() const {
+   }
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (auto& window = fingerprint::Controller::GetInstance().GetWindow(); window.Enabled()) {
+-    return window.GetScreenAvailHeight();
++  if (auto& window_screen = fingerprint::Controller::GetInstance().GetWindowScreen(); window_screen.Enabled()) {
++    return window_screen.GetScreenAvailHeight();
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+@@ -241,8 +241,8 @@ int Screen::availWidth() const {
+   }
+ 
+   #ifdef ENABLE_FINGERPRINT
+-  if (auto& window = fingerprint::Controller::GetInstance().GetWindow(); window.Enabled()) {
+-    return window.GetScreenAvailWidth();
++  if (auto& window_screen = fingerprint::Controller::GetInstance().GetWindowScreen(); window_screen.Enabled()) {
++    return window_screen.GetScreenAvailWidth();
+   }
+   #endif // ENABLE_FINGERPRINT
+ 
+diff --git a/third_party/blink/renderer/core/frame/visual_viewport.cc b/third_party/blink/renderer/core/frame/visual_viewport.cc
+index f8d8caa0b5242..c64afc6157d94 100644
+--- a/third_party/blink/renderer/core/frame/visual_viewport.cc
++++ b/third_party/blink/renderer/core/frame/visual_viewport.cc
+@@ -28,6 +28,10 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++#ifdef ENABLE_FINGERPRINT
++#include "a_tools/fingerprint/controller.h"
++#endif // ENABLE_FINGERPRINT
++
+ #include "third_party/blink/renderer/core/frame/visual_viewport.h"
+ 
+ #include <memory>
+@@ -495,6 +499,13 @@ double VisualViewport::Width() const {
+   DCHECK(IsActiveViewport());
+   if (Document* document = LocalMainFrame().GetDocument())
+     document->UpdateStyleAndLayout(DocumentUpdateReason::kJavaScript);
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto& window_screen = fingerprint::Controller::GetInstance().GetWindowScreen(); window_screen.Enabled()) {
++    return window_screen.GetVisualViewportWidth();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return VisibleWidthCSSPx();
+ }
+ 
+@@ -502,6 +513,13 @@ double VisualViewport::Height() const {
+   DCHECK(IsActiveViewport());
+   if (Document* document = LocalMainFrame().GetDocument())
+     document->UpdateStyleAndLayout(DocumentUpdateReason::kJavaScript);
++
++  #ifdef ENABLE_FINGERPRINT
++  if (auto& window_screen = fingerprint::Controller::GetInstance().GetWindowScreen(); window_screen.Enabled()) {
++    return window_screen.GetVisualViewportHeight();
++  }
++  #endif // ENABLE_FINGERPRINT
++
+   return VisibleHeightCSSPx();
+ }
+ 
+-- 
+2.43.0
+

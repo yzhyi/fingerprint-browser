@@ -1,0 +1,76 @@
+From 81f9f192c37215f5dc4d39ce78644ea2a6f1b78e Mon Sep 17 00:00:00 2001
+From: yuzhengyi02 <yuzhengyi02@meituan.com>
+Date: Tue, 9 Sep 2025 19:52:39 +0800
+Subject: [PATCH 14/68] add kFingerprint
+
+---
+ a_tools/fingerprint/controller.cc | 8 ++++----
+ a_tools/fingerprint/controller.h  | 2 +-
+ base/command_line.cc              | 4 ++--
+ 3 files changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index ad7ff417e4014..25e6e80ae313f 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -8,7 +8,7 @@
+ 
+ namespace fingerprint {
+ 
+-const char kYzhyi[] = "yzhyi";
++const char kFingerprint[] = "fp";
+ 
+ int Controller::RandomInt(int min, int max) {
+   if (min > max) {
+@@ -23,9 +23,9 @@ int Controller::RandomInt(int min, int max) {
+ 
+ Controller::Controller()
+   : m_command_line(base::CommandLine::ForCurrentProcess()) {
+-  if (m_command_line->HasSwitch(kYzhyi)) {
++  if (m_command_line->HasSwitch(kFingerprint)) {
+     m_json_str = m_command_line->
+-      GetSwitchValueASCII(kYzhyi);
++      GetSwitchValueASCII(kFingerprint);
+     m_json_value = base::JSONReader::Read(m_json_str);
+     ParseJson();
+     ParseWebGL();
+@@ -37,7 +37,7 @@ Controller::~Controller() {}
+ 
+ bool Controller::AppendCommandLine(base::CommandLine* command_line) {
+   if (!m_json_str.empty()) {
+-    command_line->AppendSwitchASCII(kYzhyi, m_json_str);
++    command_line->AppendSwitchASCII(kFingerprint, m_json_str);
+     return true;
+   }
+   return false;
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index aef921d4a9155..0280e835aa840 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -11,7 +11,7 @@
+ 
+ namespace fingerprint {
+ 
+-CONTENT_EXPORT extern const char kYzhyi[];
++CONTENT_EXPORT extern const char kFingerprint[];
+ 
+ class Controller {
+ public:
+diff --git a/base/command_line.cc b/base/command_line.cc
+index 83e9fbe0cb5fc..7088ddd6b9998 100644
+--- a/base/command_line.cc
++++ b/base/command_line.cc
+@@ -669,8 +669,8 @@ void CommandLine::AppendSwitchesAndArguments(span<const StringType> argv) {
+     parse_switches &= (arg != kSwitchTerminator);
+     if (parse_switches && IsSwitch(arg, &switch_string, &switch_value)) {
+       // Yzhyi start
+-      const char kYzhyi[] = "--yzhyi";
+-      if (switch_string == CommandLine::StringType(kYzhyi)) {
++      const char kFingerprint[] = "--fp";
++      if (switch_string == CommandLine::StringType(kFingerprint)) {
+         if (IsJsonFile(switch_value)) {
+           ::base::FilePath path(switch_value);
+           std::string temp_str;
+-- 
+2.43.0
+

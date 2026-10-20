@@ -1,0 +1,236 @@
+From 39267b8da7d89a13da7ea74a9d4afaab70c9ea90 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Wed, 24 Dec 2025 09:53:06 +0800
+Subject: [PATCH 64/68] test webgl
+
+---
+ config.json                                   |   2 +-
+ .../webgl/webgl2_rendering_context_base.cc    |  19 ++-
+ .../webgl/webgl_rendering_context_base.cc     | 125 +++++++++++++++++-
+ 3 files changed, 143 insertions(+), 3 deletions(-)
+
+diff --git a/config.json b/config.json
+index acdf42d81dac1..09027109a2db6 100644
+--- a/config.json
++++ b/config.json
+@@ -17,7 +17,7 @@
+       "#unmasked_vendor_webgl": "Google Inc. (Apple)",
+       "#unmasked_renderer_webgl": "ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Pro, Unspecified Version)",
+       "unmasked_vendor_webgl": "Google Inc. (NVIDIA)",
+-      "unmasked_renderer_webgl": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11-30.0.14.9676)",
++      "unmasked_renderer_webgl": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Ti Direct3D11 vs_5_0 ps_5_0, D3D11-31.0.15.3161)",
+       "extensions": {
+         "add": [
+           "TEST"
+diff --git a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
+index 2c3e4f9cbb4d5..c4729f4a0f1b7 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
+@@ -4824,7 +4824,8 @@ ScriptValue WebGL2RenderingContextBase::getParameter(ScriptState* script_state,
+     case GL_MAX_ARRAY_TEXTURE_LAYERS:
+       return GetIntParameter(script_state, pname);
+     case GC3D_MAX_CLIENT_WAIT_TIMEOUT_WEBGL:
+-      return WebGLAny(script_state, kMaxClientWaitTimeout);
++      // return WebGLAny(script_state, kMaxClientWaitTimeout);
++      return WebGLAny(script_state, 0);
+     case GL_MAX_COLOR_ATTACHMENTS:
+       return GetIntParameter(script_state, pname);
+     case GL_MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS:
+@@ -5017,6 +5018,22 @@ ScriptValue WebGL2RenderingContextBase::GetInt64Parameter(
+   GLint64 value = 0;
+   if (!isContextLost())
+     ContextGL()->GetInteger64v(pname, &value);
++  if (pname == GL_MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS) {
++    return WebGLAny(script_state, 200704);
++  }
++  if (pname == GL_MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS) {
++    return WebGLAny(script_state, 212988);
++  }
++  if (pname == GL_MAX_ELEMENT_INDEX) {
++    return WebGLAny(script_state, 4294967294);
++  }
++  if (pname == GL_MAX_SERVER_WAIT_TIMEOUT) {
++    return WebGLAny(script_state, 0);
++  }
++  if (pname == GL_MAX_UNIFORM_BLOCK_SIZE) {
++    return WebGLAny(script_state, 65536);
++  }
++
+   return WebGLAny(script_state, value);
+ }
+ 
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index a32c3f191666e..794d749635745 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -4150,7 +4150,8 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+       return ScriptValue::CreateNull(script_state->GetIsolate());
+     case GL_MAX_DRAW_BUFFERS_EXT:
+       if (ExtensionEnabled(kWebGLDrawBuffersName) || IsWebGL2())
+-        return WebGLAny(script_state, MaxDrawBuffers());
++        // return WebGLAny(script_state, MaxDrawBuffers());
++        return WebGLAny(script_state, 8);
+       SynthesizeGLError(
+           GL_INVALID_ENUM, "getParameter",
+           "invalid parameter name, WEBGL_draw_buffers not enabled");
+@@ -7720,6 +7721,13 @@ ScriptValue WebGLRenderingContextBase::GetFloatParameter(
+           blink::IdentifiableSurface::Type::kWebGLParameter)) {
+     RecordIdentifiableGLParameterDigest(pname, value);
+   }
++  if (pname == GL_MAX_TEXTURE_LOD_BIAS) {
++    return WebGLAny(script_state, 2);
++  }
++  if (pname == GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT) {
++    return WebGLAny(script_state, 16);
++  }
++
+   return WebGLAny(script_state, value);
+ }
+ 
+@@ -7746,6 +7754,101 @@ ScriptValue WebGLRenderingContextBase::GetIntParameter(
+           blink::IdentifiableSurface::Type::kWebGLParameter)) {
+     RecordIdentifiableGLParameterDigest(pname, value);
+   }
++
++  if (pname == GL_MAX_3D_TEXTURE_SIZE) {
++    return WebGLAny(script_state, 2048);
++  }
++  if (pname == GL_MAX_ARRAY_TEXTURE_LAYERS) {
++    return WebGLAny(script_state, 2048);
++  }
++  if (pname == GL_MAX_COLOR_ATTACHMENTS) {
++    return WebGLAny(script_state, 8);
++  }
++  if (pname == GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS) {
++    return WebGLAny(script_state, 32);
++  }
++  if (pname == GL_MAX_COMBINED_UNIFORM_BLOCKS) {
++    return WebGLAny(script_state, 24);
++  }
++  if (pname == GL_MAX_CUBE_MAP_TEXTURE_SIZE) {
++    return WebGLAny(script_state, 16384);
++  }
++  if (pname == GL_MAX_DRAW_BUFFERS) {
++    return WebGLAny(script_state, 8);
++  }
++  if (pname == GL_MAX_ELEMENTS_INDICES) {
++    return WebGLAny(script_state, 2147483647);
++  }
++  if (pname == GL_MAX_ELEMENTS_VERTICES) {
++    return WebGLAny(script_state, 2147483647);
++  }
++  if (pname == GL_MAX_FRAGMENT_INPUT_COMPONENTS) {
++    return WebGLAny(script_state, 120);
++  }
++  if (pname == GL_MAX_FRAGMENT_UNIFORM_BLOCKS) {
++    return WebGLAny(script_state, 12);
++  }
++  if (pname == GL_MAX_FRAGMENT_UNIFORM_COMPONENTS) {
++    return WebGLAny(script_state, 4096);
++  }
++  if (pname == GL_MAX_FRAGMENT_UNIFORM_VECTORS) {
++    return WebGLAny(script_state, 1024);
++  }
++  if (pname == GL_MAX_PROGRAM_TEXEL_OFFSET) {
++    return WebGLAny(script_state, 7);
++  }
++  if (pname == GL_MAX_RENDERBUFFER_SIZE) {
++    return WebGLAny(script_state, 16384);
++  }
++  if (pname == GL_MAX_SAMPLES) {
++    return WebGLAny(script_state, 8);
++  }
++  if (pname == GL_MAX_TEXTURE_IMAGE_UNITS) {
++    return WebGLAny(script_state, 16);
++  }
++  if (pname == GL_MAX_TEXTURE_SIZE) {
++    return WebGLAny(script_state, 16384);
++  }
++  if (pname == GL_MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS) {
++    return WebGLAny(script_state, 120);
++  }
++  if (pname == GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS) {
++    return WebGLAny(script_state, 4);
++  }
++  if (pname == GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS) {
++    return WebGLAny(script_state, 4);
++  }
++  if (pname == GL_MAX_UNIFORM_BUFFER_BINDINGS) {
++    return WebGLAny(script_state, 24);
++  }
++  if (pname == GL_MAX_VARYING_COMPONENTS) {
++    return WebGLAny(script_state, 120);
++  }
++  if (pname == GL_MAX_VARYING_VECTORS) {
++    return WebGLAny(script_state, 30);
++  }
++  if (pname == GL_MAX_VERTEX_ATTRIBS) {
++    return WebGLAny(script_state, 16);
++  }
++  if (pname == GL_MAX_VERTEX_OUTPUT_COMPONENTS) {
++    return WebGLAny(script_state, 120);
++  }
++  if (pname == GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS) {
++    return WebGLAny(script_state, 16);
++  }
++  if (pname == GL_MAX_VERTEX_UNIFORM_BLOCKS) {
++    return WebGLAny(script_state, 12);
++  }
++  if (pname == GL_MAX_VERTEX_UNIFORM_COMPONENTS) {
++    return WebGLAny(script_state, 16380);
++  }
++  if (pname == GL_MAX_VERTEX_UNIFORM_VECTORS) {
++    return WebGLAny(script_state, 4095);
++  }
++  if (pname == GL_SUBPIXEL_BITS) {
++    return WebGLAny(script_state, 4);
++  }
++
+   return WebGLAny(script_state, value);
+ }
+ 
+@@ -7764,6 +7867,19 @@ ScriptValue WebGLRenderingContextBase::GetUnsignedIntParameter(
+   GLint value = 0;
+   if (!isContextLost())
+     ContextGL()->GetIntegerv(pname, &value);
++  if (pname == GL_STENCIL_BACK_VALUE_MASK) {
++    return WebGLAny(script_state, static_cast<unsigned>(2147483647));
++  }
++  if (pname == GL_STENCIL_BACK_WRITEMASK) {
++    return WebGLAny(script_state, static_cast<unsigned>(2147483647));
++  }
++  if (pname == GL_STENCIL_VALUE_MASK) {
++    return WebGLAny(script_state, static_cast<unsigned>(2147483647));
++  }
++  if (pname == GL_STENCIL_WRITEMASK) {
++    return WebGLAny(script_state, static_cast<unsigned>(2147483647));
++  }
++
+   return WebGLAny(script_state, static_cast<unsigned>(value));
+ }
+ 
+@@ -7776,7 +7892,13 @@ ScriptValue WebGLRenderingContextBase::GetWebGLFloatArrayParameter(
+   unsigned length = 0;
+   switch (pname) {
+     case GL_ALIASED_POINT_SIZE_RANGE:
++      value = {1,1024,0,0};
++      length = 2;
++      break;
+     case GL_ALIASED_LINE_WIDTH_RANGE:
++      value = {1,1,0,0};
++      length = 2;
++      break;
+     case GL_DEPTH_RANGE:
+       length = 2;
+       break;
+@@ -7812,6 +7934,7 @@ ScriptValue WebGLRenderingContextBase::GetWebGLIntArrayParameter(
+   unsigned length = 0;
+   switch (pname) {
+     case GL_MAX_VIEWPORT_DIMS:
++      value = {32767, 32767, 0, 0};
+       length = 2;
+       break;
+     case GL_SCISSOR_BOX:
+-- 
+2.43.0
+

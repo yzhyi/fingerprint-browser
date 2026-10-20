@@ -1,0 +1,283 @@
+From 9720926428e940e35a028aa5bd9d7c5b9cb86d60 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Fri, 24 Oct 2025 15:36:20 +0800
+Subject: [PATCH 39/68] export symbol for debug mode
+
+---
+ a_tools/fingerprint/canvas/canvas.h             | 15 ++++++++-------
+ a_tools/fingerprint/controller.cc               |  2 +-
+ a_tools/fingerprint/controller.h                |  6 +++---
+ .../fingerprint/device_memory/device_memory.h   |  3 ++-
+ a_tools/fingerprint/fonts/fonts.h               |  3 ++-
+ .../hardware_concurrency/hardware_concurrency.h |  3 ++-
+ a_tools/fingerprint/tls/tls.h                   |  3 ++-
+ a_tools/fingerprint/utils/random.h              |  4 +++-
+ a_tools/fingerprint/webgl/webgl.h               | 15 ++++++++-------
+ a_tools/fingerprint/webgpu/webgpu.h             | 17 +++++++++--------
+ a_tools/fingerprint/webrtc/webrtc.h             |  3 ++-
+ 11 files changed, 42 insertions(+), 32 deletions(-)
+
+diff --git a/a_tools/fingerprint/canvas/canvas.h b/a_tools/fingerprint/canvas/canvas.h
+index 27c998ad6c256..5113a9685cef8 100644
+--- a/a_tools/fingerprint/canvas/canvas.h
++++ b/a_tools/fingerprint/canvas/canvas.h
+@@ -2,6 +2,7 @@
+ 
+ #include "../base_fingerprint.h"
+ #include "base/values.h"
++#include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+ namespace fingerprint {
+@@ -20,13 +21,13 @@ private:
+ 
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+-  void ModifyWidth(unsigned &value);
+-  void ModifyHeight(unsigned &value);
+-  void ModifyRectX(double &value);
+-  void ModifyRectY(double &value);
+-  void ModifyRectWidth(double &value);
+-  void ModifyRectHeight(double &value);
+-  std::string ModifyDataURL(std::string data_url);
++  BASE_EXPORT void ModifyWidth(unsigned &value);
++  BASE_EXPORT void ModifyHeight(unsigned &value);
++  BASE_EXPORT void ModifyRectX(double &value);
++  BASE_EXPORT void ModifyRectY(double &value);
++  BASE_EXPORT void ModifyRectWidth(double &value);
++  BASE_EXPORT void ModifyRectHeight(double &value);
++  BASE_EXPORT std::string ModifyDataURL(std::string data_url);
+ 
+ private:
+   double m_width{0};
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index 28c2561d6a65f..d685313a13099 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -23,7 +23,7 @@ Controller::Controller()
+ 
+ Controller::~Controller() = default;
+ 
+-CONTENT_EXPORT Controller& Controller::GetInstance() {
++Controller& Controller::GetInstance() {
+   static std::once_flag flag;
+   static Controller* controller = nullptr;
+   std::call_once(flag, []() {
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index 8f952df3ca7b7..5bb4509e9b6f3 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -3,9 +3,9 @@
+ #include <iostream>
+ #include <string>
+ 
++#include "base/base_export.h"
+ #include "base/command_line.h"
+ #include "base/memory/raw_ptr.h"
+-#include "content/common/content_export.h"
+ 
+ #include "./utils/random.h"
+ #include "./canvas/canvas.h"
+@@ -24,9 +24,9 @@ public:
+   Controller(const Controller&) = delete;
+   Controller& operator=(const Controller&) = delete;
+ 
+-  CONTENT_EXPORT static Controller& GetInstance();
++  BASE_EXPORT static Controller& GetInstance();
+ 
+-  bool AppendCommandLine(base::CommandLine* command_line);
++  BASE_EXPORT bool AppendCommandLine(base::CommandLine* command_line);
+   void PrintJson();
+ 
+   Canvas& GetCanvas() { return m_canvas; }
+diff --git a/a_tools/fingerprint/device_memory/device_memory.h b/a_tools/fingerprint/device_memory/device_memory.h
+index f6b66d2583c9d..897c086ef1148 100644
+--- a/a_tools/fingerprint/device_memory/device_memory.h
++++ b/a_tools/fingerprint/device_memory/device_memory.h
+@@ -2,6 +2,7 @@
+ 
+ #include "../base_fingerprint.h"
+ #include "base/values.h"
++#include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+ namespace fingerprint {
+@@ -20,7 +21,7 @@ private:
+ 
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+-  void ModifyDeviceMemory(float &GiB);
++  BASE_EXPORT void ModifyDeviceMemory(float &GiB);
+ 
+ private:
+   double m_GiB{0};
+diff --git a/a_tools/fingerprint/fonts/fonts.h b/a_tools/fingerprint/fonts/fonts.h
+index bb65909011bd1..c7ea5b849fe7e 100644
+--- a/a_tools/fingerprint/fonts/fonts.h
++++ b/a_tools/fingerprint/fonts/fonts.h
+@@ -2,6 +2,7 @@
+ 
+ #include "../base_fingerprint.h"
+ #include "base/values.h"
++#include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+ namespace fingerprint {
+@@ -20,7 +21,7 @@ private:
+ 
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+-  int GetNoise();
++  BASE_EXPORT int GetNoise();
+ 
+ private:
+   double m_noise_min{0};
+diff --git a/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.h b/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.h
+index 503996ab93cc4..c156618dea072 100644
+--- a/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.h
++++ b/a_tools/fingerprint/hardware_concurrency/hardware_concurrency.h
+@@ -2,6 +2,7 @@
+ 
+ #include "../base_fingerprint.h"
+ #include "base/values.h"
++#include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+ namespace fingerprint {
+@@ -20,7 +21,7 @@ private:
+ 
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+-  unsigned ModifyHardwareConcurrency(unsigned cores);
++  BASE_EXPORT unsigned ModifyHardwareConcurrency(unsigned cores);
+ 
+ private:
+   double m_cores{0};
+diff --git a/a_tools/fingerprint/tls/tls.h b/a_tools/fingerprint/tls/tls.h
+index 16d07a0e36740..63c2cb5784d52 100644
+--- a/a_tools/fingerprint/tls/tls.h
++++ b/a_tools/fingerprint/tls/tls.h
+@@ -2,6 +2,7 @@
+ 
+ #include "../base_fingerprint.h"
+ #include "base/values.h"
++#include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+ namespace fingerprint {
+@@ -20,7 +21,7 @@ private:
+ 
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+-  void ModifyCipherSuites(std::string &command);
++  BASE_EXPORT void ModifyCipherSuites(std::string &command);
+   // TODO: Yzhyi modify extensions
+ 
+ private:
+diff --git a/a_tools/fingerprint/utils/random.h b/a_tools/fingerprint/utils/random.h
+index 6a0ecf1867c8f..df1dd039c5af1 100644
+--- a/a_tools/fingerprint/utils/random.h
++++ b/a_tools/fingerprint/utils/random.h
+@@ -1,7 +1,9 @@
+ # pragma once
+ 
++#include "base/base_export.h"
++
+ namespace fingerprint {
+ 
+-int RandomInt(int min, int max);
++BASE_EXPORT int RandomInt(int min, int max);
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/webgl/webgl.h b/a_tools/fingerprint/webgl/webgl.h
+index a19032169f7b2..51358acf3f480 100644
+--- a/a_tools/fingerprint/webgl/webgl.h
++++ b/a_tools/fingerprint/webgl/webgl.h
+@@ -5,6 +5,7 @@
+ 
+ #include "../base_fingerprint.h"
+ #include "base/values.h"
++#include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+ namespace fingerprint {
+@@ -23,13 +24,13 @@ private:
+ 
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+-  std::string GetUnmaskedVendorWebgl();
+-  std::string GetUnmaskedRendererWebgl();
+-  void ModifyPixelsX(int &value);
+-  void ModifyPixelsY(int &value);
+-  void ModifyPixelsWidth(int &value);
+-  void ModifyPixelsHeight(int &value);
+-  void ModifyExtensions(std::unordered_set<std::string> &extensions);
++  BASE_EXPORT std::string GetUnmaskedVendorWebgl();
++  BASE_EXPORT std::string GetUnmaskedRendererWebgl();
++  BASE_EXPORT void ModifyPixelsX(int &value);
++  BASE_EXPORT void ModifyPixelsY(int &value);
++  BASE_EXPORT void ModifyPixelsWidth(int &value);
++  BASE_EXPORT void ModifyPixelsHeight(int &value);
++  BASE_EXPORT void ModifyExtensions(std::unordered_set<std::string> &extensions);
+   // TODO: yzhyi handle getParameter
+ 
+ private:
+diff --git a/a_tools/fingerprint/webgpu/webgpu.h b/a_tools/fingerprint/webgpu/webgpu.h
+index 8a0a30576ffd6..732d8c58946d0 100644
+--- a/a_tools/fingerprint/webgpu/webgpu.h
++++ b/a_tools/fingerprint/webgpu/webgpu.h
+@@ -2,6 +2,7 @@
+ 
+ #include "../base_fingerprint.h"
+ #include "base/values.h"
++#include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+ namespace fingerprint {
+@@ -20,14 +21,14 @@ private:
+ 
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+-  std::string ModifyVendor(std::string vendor);
+-  std::string ModifyArchitecture(std::string architecture);
+-  std::string ModifyDevice(std::string device);
+-  std::string ModifyDescription(std::string description);
+-  void ModifyIsFallbackAdapter(bool &is_fallback_adapter);
+-  void ModifyLimits(std::string name, uint32_t &value);
+-  void ModifyLimits(std::string name, uint64_t &value);
+-  std::unordered_map<std::string, bool> GetFeatures();
++  BASE_EXPORT std::string ModifyVendor(std::string vendor);
++  BASE_EXPORT std::string ModifyArchitecture(std::string architecture);
++  BASE_EXPORT std::string ModifyDevice(std::string device);
++  BASE_EXPORT std::string ModifyDescription(std::string description);
++  BASE_EXPORT void ModifyIsFallbackAdapter(bool &is_fallback_adapter);
++  BASE_EXPORT void ModifyLimits(std::string name, uint32_t &value);
++  BASE_EXPORT void ModifyLimits(std::string name, uint64_t &value);
++  BASE_EXPORT std::unordered_map<std::string, bool> GetFeatures();
+ 
+ private:
+   // info
+diff --git a/a_tools/fingerprint/webrtc/webrtc.h b/a_tools/fingerprint/webrtc/webrtc.h
+index ff84ce160a2c5..3504ea1c3f328 100644
+--- a/a_tools/fingerprint/webrtc/webrtc.h
++++ b/a_tools/fingerprint/webrtc/webrtc.h
+@@ -3,6 +3,7 @@
+ #include <cstdint>
+ #include "../base_fingerprint.h"
+ #include "base/values.h"
++#include "base/base_export.h"
+ #include "third_party/abseil-cpp/absl/types/optional.h"
+ 
+ namespace webrtc {
+@@ -26,7 +27,7 @@ private:
+ 
+ public:
+   bool ParseJson(const absl::optional<base::Value> &json_value) override;
+-  std::string ModifyCandidate(std::string candidate);
++  BASE_EXPORT std::string ModifyCandidate(std::string candidate);
+ 
+ private:
+   std::string m_host_ip;
+-- 
+2.43.0
+

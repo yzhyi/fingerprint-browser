@@ -1,0 +1,225 @@
+From 77348a01cdfe0d397d58c97bc885381a1a305a23 Mon Sep 17 00:00:00 2001
+From: yu <zhengyiyu_xidian@163.com>
+Date: Fri, 14 Nov 2025 18:57:20 +0800
+Subject: [PATCH 57/68] add language
+
+---
+ a_tools/BUILD.gn                         |  2 +
+ a_tools/fingerprint/controller.cc        | 22 ++++++++++-
+ a_tools/fingerprint/controller.h         |  4 ++
+ a_tools/fingerprint/language/language.cc | 47 ++++++++++++++++++++++++
+ a_tools/fingerprint/language/language.h  | 24 ++++++++++++
+ config.json                              | 11 ++++--
+ 6 files changed, 106 insertions(+), 4 deletions(-)
+ create mode 100644 a_tools/fingerprint/language/language.cc
+ create mode 100644 a_tools/fingerprint/language/language.h
+
+diff --git a/a_tools/BUILD.gn b/a_tools/BUILD.gn
+index fa6ca2a853bee..6b2b0221ba66e 100644
+--- a/a_tools/BUILD.gn
++++ b/a_tools/BUILD.gn
+@@ -53,6 +53,8 @@ source_set("a_tools") {
+     "fingerprint/do_not_track/do_not_track.cc",
+     "fingerprint/user_agent/user_agent.h",
+     "fingerprint/user_agent/user_agent.cc",
++    "fingerprint/language/language.h",
++    "fingerprint/language/language.cc",
+   ]
+   deps = [
+     "//base/allocator/partition_allocator:raw_ptr",
+diff --git a/a_tools/fingerprint/controller.cc b/a_tools/fingerprint/controller.cc
+index 5f96af3f47648..03868fd1ca827 100644
+--- a/a_tools/fingerprint/controller.cc
++++ b/a_tools/fingerprint/controller.cc
+@@ -27,11 +27,13 @@ Controller::Controller()
+     m_webaudio(m_json_value),
+     m_navigator(m_json_value),
+     m_do_not_track(m_json_value),
+-    m_user_agent(m_json_value)
++    m_user_agent(m_json_value),
++    m_language(m_json_value)
+ {
+ 
+   if (!m_command_line.get()->HasSwitch("type")) {
+     AppendUserAgentCommandLine();
++    AppendLanguageCommandLine();
+   }
+ }
+ 
+@@ -61,6 +63,24 @@ void Controller::AppendUserAgentCommandLine() {
+   }
+ }
+ 
++void Controller::AppendLanguageCommandLine() {
++  if (m_language.Enabled()) {
++    if (!m_language.GetLanguage().empty()) {
++      const_cast<base::CommandLine*>(m_command_line.get())
++        ->AppendSwitchASCII(m_language.GetCommandLineKeyLang(), m_language.GetLanguage());
++    }
++    if (!m_language.GetLanguages().empty()) {
++      std::string languages;
++      for (auto &language : m_language.GetLanguages()) {
++        languages += language + ",";
++      }
++      languages.pop_back();
++      const_cast<base::CommandLine*>(m_command_line.get())
++        ->AppendSwitchASCII(m_language.GetCommandLineKeyAcceptLang(), languages);
++    }
++  }
++}
++
+ void Controller::PrintJson() {
+   std::cout << "Controller::PrintJson: " << m_json_str << std::endl;
+   LOG(INFO) << "Controller::PrintJson: " << m_json_str;
+diff --git a/a_tools/fingerprint/controller.h b/a_tools/fingerprint/controller.h
+index 0b3a084ba636e..d4f4c3d0781f7 100644
+--- a/a_tools/fingerprint/controller.h
++++ b/a_tools/fingerprint/controller.h
+@@ -24,6 +24,7 @@
+ #include "./navigator/navigator.h"
+ #include "./do_not_track/do_not_track.h"
+ #include "./user_agent/user_agent.h"
++#include "./language/language.h"
+ 
+ namespace fingerprint {
+ 
+@@ -53,11 +54,13 @@ public:
+   Navigator& GetNavigator() { return m_navigator; }
+   DoNotTrack& GetDoNotTrack() { return m_do_not_track; }
+   UserAgent& GetUserAgent() { return m_user_agent; }
++  Language& GetLanguage() { return m_language; }
+ 
+ private:
+   Controller();
+   ~Controller();
+   void AppendUserAgentCommandLine();
++  void AppendLanguageCommandLine();
+ 
+   const raw_ptr<const base::CommandLine> m_command_line;
+   bool m_enabled;
+@@ -80,6 +83,7 @@ private:
+   Navigator m_navigator;
+   DoNotTrack m_do_not_track;
+   UserAgent m_user_agent;
++  Language m_language;
+ };
+ 
+ } // namespace fingerprint
+diff --git a/a_tools/fingerprint/language/language.cc b/a_tools/fingerprint/language/language.cc
+new file mode 100644
+index 0000000000000..c61f6b4d711f7
+--- /dev/null
++++ b/a_tools/fingerprint/language/language.cc
+@@ -0,0 +1,47 @@
++#include "./language.h"
++#include "../utils/random.h"
++#include "../utils/parse_json.h"
++
++namespace fingerprint {
++
++Language::Language(const absl::optional<base::Value> &json_value) {
++  ParseJson(json_value);
++}
++
++Language::~Language() = default;
++
++bool Language::ParseJson(const absl::optional<base::Value> &json_value) {
++  if (!json_value) return false;
++  if (const base::DictValue* dict = FindDict(json_value.value(), "language"); dict) {
++    if (FindBool(dict, "enabled", m_enabled); m_enabled) {
++      if (const base::DictValue* params_dict = FindDict(dict, "params"); params_dict) {
++        FindString(params_dict, "language", m_language);
++        if (const base::ListValue* languages_dict = FindList(params_dict, "languages"); languages_dict) {
++          for (auto& language : *languages_dict) {
++            m_languages.push_back(language.GetString());
++          }
++        }
++      }
++    }
++    return true;
++  }
++  return false;
++}
++
++std::string Language::GetCommandLineKeyAcceptLang() {
++  return "accept-lang";
++}
++
++std::string Language::GetCommandLineKeyLang() {
++  return "lang";
++}
++
++std::string Language::GetLanguage() {
++  return m_language;
++}
++
++std::vector<std::string> Language::GetLanguages() {
++  return m_languages;
++}
++
++} // namespace fingerprint
+diff --git a/a_tools/fingerprint/language/language.h b/a_tools/fingerprint/language/language.h
+new file mode 100644
+index 0000000000000..e9ef0003c07a3
+--- /dev/null
++++ b/a_tools/fingerprint/language/language.h
+@@ -0,0 +1,24 @@
++# pragma once
++
++#include "../base_fingerprint.h"
++#include "base/values.h"
++#include "base/base_export.h"
++#include "third_party/abseil-cpp/absl/types/optional.h"
++
++namespace fingerprint {
++
++FINGERPRINT_CLASS_DECLARE(Language);
++
++public:
++  std::string GetCommandLineKeyAcceptLang();
++  std::string GetCommandLineKeyLang();
++  std::string GetLanguage();
++  std::vector<std::string> GetLanguages();
++
++private:
++  std::string m_language;
++  std::vector<std::string> m_languages;
++
++FINGERPRINT_CLASS_END();
++
++} // namespace fingerprint
+diff --git a/config.json b/config.json
+index 6e817c036c368..935a0633c83dd 100644
+--- a/config.json
++++ b/config.json
+@@ -179,8 +179,6 @@
+       "product": "Gecko",
+       "#user_agent": "",
+       "#user_agent_data": "",
+-      "#language": "zh-CN",
+-      "#languages": ["zh-CN", "zh"],
+       "//lang": "AppendSwitchASCII()"
+     }
+   },
+@@ -198,10 +196,17 @@
+     }
+   },
+   "user_agent": {
+-    "enabled": true,
++    "enabled": false,
+     "params": {
+       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+       "//user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+     }
++  },
++  "language": {
++    "enabled": true,
++    "params": {
++      "language": "zh-CN",
++      "languages": ["zh-CN", "zh"]
++    }
+   }
+ }
+-- 
+2.43.0
+
